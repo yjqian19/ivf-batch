@@ -2,42 +2,72 @@
 
 ## 1. Related Works
 
-### Papers
+### IVF Indexing
+
+Most vector search systems build on IVF, which partitions the vector space into clusters via k-means and assigns each vector to its nearest centroid's inverted list. At query time, only `nprobe` lists are scanned, trading recall for speed. The nprobe setting is the primary knob governing the latency–recall tradeoff and directly determines how many inverted lists queries overlap — the key factor enabling cluster-based batching.
 
 **[1] Billion-Scale Similarity Search with GPUs**
 Jeff Johnson, Matthijs Douze, Hervé Jégou (Meta FAIR) — IEEE Transactions on Big Data, 2019
 https://arxiv.org/abs/1702.08734
-The foundational Faiss paper. Defines the IVF index architecture (centroid assignment, inverted lists, nprobe-driven cluster probing) that all three batching strategies in this project operate on. Essential baseline reference.
+The foundational Faiss paper. Defines the IVF index architecture (centroid assignment, inverted lists, nprobe-driven cluster probing) and GPU-accelerated k-selection. Essential baseline for understanding the index structure all batching strategies operate on.
+
+---
+
+### Batch-Aware Vector Search *(main focus)*
+
+Batching concurrent queries is the primary mechanism for improving throughput in vector search. The key insight is that multiple queries frequently probe overlapping inverted lists, so executing them together allows shared data loads, better cache utilization, and vectorized distance computation across queries. This direction spans production systems, GPU-accelerated indexes, and system-level design of concurrent query execution.
 
 **[2] Milvus: A Purpose-Built Vector Data Management System**
 Jianguo Wang et al. (Purdue / Zilliz) — ACM SIGMOD 2021
 https://www.cs.purdue.edu/homes/csjgwang/pubs/SIGMOD21_Milvus.pdf
-Describes how Milvus partitions concurrent queries into cache-fitting query blocks and executes them with multi-threading — a direct production parallel to time-window and cluster-based batching strategies.
+Describes how Milvus partitions concurrent queries into cache-fitting query blocks and dispatches them with multi-threading. The query block design — grouping queries so their combined working set fits in cache — is a direct structural parallel to this project's cluster-based batching strategy.
 
-**[3] Cooperative Scans: Dynamic Bandwidth Sharing in a DBMS**
-Marcin Zukowski, Sándor Héman, Niels Nes, Peter Boncz — VLDB 2007
-https://15721.courses.cs.cmu.edu/spring2016/papers/p723-zukowski.pdf
-Canonical work on sharing sequential scan I/O across concurrent queries in column stores. The core principle — group queries that access the same data to load it once — maps directly to cluster-based batching over IVF inverted lists.
+**[3] Manu: A Cloud Native Vector Database Management System**
+Rentong Guo et al. (Zilliz) — PVLDB Vol. 15, 2022
+https://www.vldb.org/pvldb/vol15/p3548-yan.pdf
+Extends Milvus to a cloud-native architecture with MVCC and delta consistency. Benchmarks concurrent query throughput under varying workloads and evaluates the IVF query dispatch pipeline at scale, providing a production reference for the throughput metrics targeted in this project.
 
-**[4] Cache Locality Is Not Enough: High-Performance Nearest Neighbor Search with Product Quantization Fast Scan**
-Fabien André, Anne-Marie Kermarrec, Nicolas Le Scouarnec (Inria) — PVLDB 2015
-http://www.vldb.org/pvldb/vol9/p288-andre.pdf
-Introduces PQ Fast Scan, which fits lookup tables into SIMD registers for 4–6× speedup over cache-resident tables. This technique is adopted in Faiss's `IndexIVFPQFastScan` and is the key SIMD primitive for distance computation within batched IVF clusters.
-
-**[5] GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ**
+**[4] GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ**
 NTU / NVIDIA cuVS team — arXiv 2025
 https://arxiv.org/abs/2602.23999
-Explicitly demonstrates that batching queries together while probing IVF clusters enables cache reuse and coalesced memory access, driving throughput gains. Directly validates the core hypothesis of cluster-based batching.
+Explicitly demonstrates that batching queries together while probing IVF clusters exposes regular computation patterns ideal for GEMM-style execution and enables coalesced memory access within lists. Directly validates the core hypothesis of cluster-based batching: co-scheduling queries that share probe lists drives throughput gains.
+
+**[5] The Design and Implementation of a Real Time Visual Search System on JD E-commerce Platform**
+Jie Li et al. (JD.com) — arXiv 2019
+https://arxiv.org/abs/1908.07389
+Describes Vearch/Gamma, a production vector search engine built on Faiss with lock-free concurrent indexing and querying. Provides a concrete case study of handling high-concurrency IVF queries at e-commerce scale, including how batching behavior emerges from request queuing under load.
 
 ---
 
-**Directions to explore further:**
+### Query Scheduling in Databases
 
-- **IVF indexing**: Faiss (Johnson et al., 2019) — the standard IVF implementation. Understand how `nprobe` affects recall/latency trade-off.
-- **Batch-aware vector search**: look for papers on batched ANN queries, e.g., query batching in Faiss GPU, or Milvus/Vearch system papers that discuss concurrent query execution.
-- **Query scheduling in databases**: classical work on shared scans (e.g., cooperative scans in column stores) is conceptually related — multiple queries sharing a single pass over data.
-- **SIMD-optimized distance computation**: papers on vectorized distance kernels (e.g., SIMD-based inner product / L2 in Faiss, ScaNN).
-- **Cache-aware algorithms**: work on cache-oblivious or cache-conscious data access patterns in nearest-neighbor search.
+Classical multi-query optimization research addresses the same fundamental problem: when multiple queries access overlapping data, scheduling them to share I/O and computation reduces redundant work. Cooperative scan techniques in column stores — grouping concurrent queries to share a single sequential pass — are the direct conceptual predecessor to time-window and cluster-based batching over IVF inverted lists.
+
+**[6] Cooperative Scans: Dynamic Bandwidth Sharing in a DBMS**
+Marcin Zukowski, Sándor Héman, Niels Nes, Peter Boncz — VLDB 2007
+https://15721.courses.cs.cmu.edu/spring2016/papers/p723-zukowski.pdf
+Canonical work on sharing scan I/O across concurrent queries in column stores. Introduces dynamic batching of queries that touch the same data pages, with analysis of memory bandwidth savings. The "load once, serve many" principle maps directly to cluster-based batching over IVF inverted lists.
+
+**[7] Shared Workload Optimization**
+Georgios Giannikis, Darko Makreshanski, Gustavo Alonso, Donald Kossmann (ETH Zurich) — PVLDB Vol. 7, 2014
+https://vldb.org/pvldb/vol7/p429-giannikis.pdf
+Develops a global optimizer that batches concurrent queries to share hash joins and scans. The stochastic knapsack formulation for grouping queries by shared access patterns is a close theoretical analog to the batch formation problem in cluster-based batching.
+
+---
+
+### SIMD-Optimized Distance Computation
+
+Vectorized distance kernels are what make batching computationally beneficial beyond just reducing I/O. When multiple queries scan the same inverted list together, SIMD instructions can process several query–vector distance computations in a single instruction, multiplying the throughput benefit of batching.
+
+**[8] Cache Locality Is Not Enough: High-Performance Nearest Neighbor Search with Product Quantization Fast Scan**
+Fabien André, Anne-Marie Kermarrec, Nicolas Le Scouarnec (Inria) — PVLDB 2015
+http://www.vldb.org/pvldb/vol9/p288-andre.pdf
+Introduces PQ Fast Scan, which fits PQ lookup tables into SIMD registers (SSE/AVX) for 4–6× speedup. Adopted directly into Faiss's `IndexIVFPQFastScan`. Demonstrates that the inner distance-computation loop within an IVF cluster is the critical path and is amenable to SIMD batching.
+
+**[9] Accelerating Large-Scale Inference with Anisotropic Vector Quantization (ScaNN)**
+Ruiqi Guo et al. (Google Research) — ICML 2020
+http://proceedings.mlr.press/v119/guo20h/guo20h.pdf
+Introduces anisotropic quantization loss and AVX-accelerated distance kernels. ScaNN's SIMD design informed Faiss's FastScan implementation and is a key reference for the hardware-level throughput gains achievable when distance computation is properly vectorized across batched queries.
 
 ---
 
