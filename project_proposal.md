@@ -32,6 +32,21 @@ Each query is processed independently: it finds the nearest centroids, scans the
 ### Time-window Batching
 Queries arriving within a fixed time window Δt are collected into a batch and executed together. This allows multiple queries to share vectorized computation, improving hardware utilization without requiring any knowledge of query content.
 
+The core trade-off is straightforward: a larger window produces a larger batch, which improves hardware utilization (better SIMD fill, fewer redundant cache loads), but increases the waiting time each individual query experiences before execution begins.
+
+**Dual-trigger flush mechanism.** The window uses two trigger conditions, whichever fires first:
+
+1. **Time trigger:** once Δt has elapsed since the window opened, the current batch is flushed immediately regardless of its size.
+2. **Size trigger:** once the batch accumulates `max_batch_size` queries, it is flushed immediately regardless of remaining time.
+
+This is a standard pattern in systems that buffer work (e.g., Kafka producer batching, database write buffers). Using only a time trigger wastes resources at low QPS (tiny batches) and risks memory pressure at high QPS (unbounded batches). Using only a size trigger causes unacceptable latency at low QPS (a single query may wait indefinitely).
+
+**Parameter ranges.** Since a single IVF query takes roughly 0.1–10 ms depending on dataset size and `nprobe`, setting Δt too small (e.g., 0.1 ms) collapses to sequential execution, while setting it too large (e.g., 100 ms) adds unacceptable latency. We plan to sweep Δt ∈ {0.5, 1, 2, 5, 10, 20, 50} ms and `max_batch_size` ∈ {32, 64, 128, 256}.
+
+**Simulating concurrent arrivals.** Because we are not building a live serving system, we simulate query arrivals using a Poisson process: given a target QPS λ, inter-arrival times are drawn from Exp(1/λ). The resulting timestamp sequence determines how queries fall into each time window. Varying λ lets us explore the spectrum from low load (small batches, little batching benefit) to high load (large batches, high throughput but growing queue delay).
+
+**Latency accounting.** A query's total latency is decomposed as: *total latency = queue delay + batch execution time*, where queue delay is the time spent waiting for the window to close, and batch execution time is the wall-clock time of the entire batch (not divided by batch size, since each query must wait for the full batch to complete before receiving its result). We will report this decomposition explicitly to show how much latency comes from queuing versus computation.
+
 ### Cluster-based Batching
 Queries are grouped by the inverted lists they access. Queries that probe overlapping clusters are placed in the same batch so that each list is loaded and scanned once, then reused across all queries in the group. This strategy is more selective than time-window batching but requires an extra grouping step.
 
