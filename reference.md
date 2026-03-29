@@ -2,9 +2,36 @@
 
 ## 1. Related Works
 
-> TODO: search and fill in related papers / systems.
+### Papers
 
-**Directions to explore:**
+**[1] Billion-Scale Similarity Search with GPUs**
+Jeff Johnson, Matthijs Douze, Hervé Jégou (Meta FAIR) — IEEE Transactions on Big Data, 2019
+https://arxiv.org/abs/1702.08734
+The foundational Faiss paper. Defines the IVF index architecture (centroid assignment, inverted lists, nprobe-driven cluster probing) that all three batching strategies in this project operate on. Essential baseline reference.
+
+**[2] Milvus: A Purpose-Built Vector Data Management System**
+Jianguo Wang et al. (Purdue / Zilliz) — ACM SIGMOD 2021
+https://www.cs.purdue.edu/homes/csjgwang/pubs/SIGMOD21_Milvus.pdf
+Describes how Milvus partitions concurrent queries into cache-fitting query blocks and executes them with multi-threading — a direct production parallel to time-window and cluster-based batching strategies.
+
+**[3] Cooperative Scans: Dynamic Bandwidth Sharing in a DBMS**
+Marcin Zukowski, Sándor Héman, Niels Nes, Peter Boncz — VLDB 2007
+https://15721.courses.cs.cmu.edu/spring2016/papers/p723-zukowski.pdf
+Canonical work on sharing sequential scan I/O across concurrent queries in column stores. The core principle — group queries that access the same data to load it once — maps directly to cluster-based batching over IVF inverted lists.
+
+**[4] Cache Locality Is Not Enough: High-Performance Nearest Neighbor Search with Product Quantization Fast Scan**
+Fabien André, Anne-Marie Kermarrec, Nicolas Le Scouarnec (Inria) — PVLDB 2015
+http://www.vldb.org/pvldb/vol9/p288-andre.pdf
+Introduces PQ Fast Scan, which fits lookup tables into SIMD registers for 4–6× speedup over cache-resident tables. This technique is adopted in Faiss's `IndexIVFPQFastScan` and is the key SIMD primitive for distance computation within batched IVF clusters.
+
+**[5] GPU-Native Approximate Nearest Neighbor Search with IVF-RaBitQ**
+NTU / NVIDIA cuVS team — arXiv 2025
+https://arxiv.org/abs/2602.23999
+Explicitly demonstrates that batching queries together while probing IVF clusters enables cache reuse and coalesced memory access, driving throughput gains. Directly validates the core hypothesis of cluster-based batching.
+
+---
+
+**Directions to explore further:**
 
 - **IVF indexing**: Faiss (Johnson et al., 2019) — the standard IVF implementation. Understand how `nprobe` affects recall/latency trade-off.
 - **Batch-aware vector search**: look for papers on batched ANN queries, e.g., query batching in Faiss GPU, or Milvus/Vearch system papers that discuss concurrent query execution.
