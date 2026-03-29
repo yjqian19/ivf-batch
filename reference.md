@@ -98,7 +98,211 @@ Varying the workload lets you show *when* each strategy wins, not just *whether*
 
 ---
 
-## 3. Others
+## 3. Core Engine Implementation
+
+The core engine is the single-query IVF search baseline that all three schedulers run on top of. Keep it as simple as possible — correctness and measurability matter more than optimization at this stage. **Use Faiss directly.** It is the reference implementation for IVF, is battle-tested, and provides ground-truth results you can compare against.
+
+### Library
+
+```
+pip install faiss-cpu        # CPU build, sufficient for this project
+# or
+pip install faiss-gpu        # if you have CUDA
+```
+
+Faiss is maintained by Meta FAIR (the authors of reference [1]) and implements exactly the IVF architecture described in the proposal.
+
+### Minimal Implementation
+
+The entire core engine — build index, load data, single-query search — is ~30 lines:
+
+```python
+import numpy as np
+import faiss
+
+# ── 1. Build the index ────────────────────────────────────────────────────────
+def build_ivf_index(vectors: np.ndarray, n_clusters: int = 256) -> faiss.IndexIVFFlat:
+    """Train an IVFFlat index on the given float32 vectors."""
+    d = vectors.shape[1]                          # dimension
+    quantizer = faiss.IndexFlatL2(d)              # exact L2 centroid search
+    index = faiss.IndexIVFFlat(quantizer, d, n_clusters, faiss.METRIC_L2)
+    index.train(vectors)                          # k-means, one-time cost
+    index.add(vectors)                            # assign vectors to lists
+    return index
+
+# ── 2. Single-query search ────────────────────────────────────────────────────
+def search(index: faiss.IndexIVFFlat, query: np.ndarray,
+           k: int = 10, nprobe: int = 8):
+    """Return top-k neighbor IDs and distances for one query vector."""
+    index.nprobe = nprobe                         # lists to scan per query
+    distances, ids = index.search(query[None, :], k)  # shape (1, d) → (1, k)
+    return ids[0], distances[0]
+
+# ── 3. Batch search (baseline sequential) ────────────────────────────────────
+def search_batch(index: faiss.IndexIVFFlat, queries: np.ndarray,
+                 k: int = 10, nprobe: int = 8):
+    """Search a batch of queries sequentially (the baseline scheduler)."""
+    index.nprobe = nprobe
+    distances, ids = index.search(queries, k)     # Faiss handles the loop
+    return ids, distances
+```
+
+All vectors must be `np.float32` (Faiss requirement). Call `vectors.astype(np.float32)` when loading.
+
+### Loading SIFT1M
+
+SIFT1M is distributed as raw binary `.fvecs` / `.ivecs` files. A standard loader:
+
+```python
+def read_fvecs(path: str) -> np.ndarray:
+    with open(path, "rb") as f:
+        data = np.fromfile(f, dtype=np.int32)
+    d = data[0]
+    return data.reshape(-1, d + 1)[:, 1:].view(np.float32).copy()
+
+def read_ivecs(path: str) -> np.ndarray:
+    with open(path, "rb") as f:
+        data = np.fromfile(f, dtype=np.int32)
+    d = data[0]
+    return data.reshape(-1, d + 1)[:, 1:].copy()
+
+# Usage
+base    = read_fvecs("sift/sift_base.fvecs")        # (1_000_000, 128)
+queries = read_fvecs("sift/sift_query.fvecs")        # (10_000, 128)
+gt      = read_ivecs("sift/sift_groundtruth.ivecs")  # (10_000, 100) true neighbors
+```
+
+### Verifying Correctness (Recall@k)
+
+Before building any scheduler, confirm the core engine reaches expected recall against the ground truth:
+
+```python
+def recall_at_k(predicted_ids: np.ndarray, ground_truth: np.ndarray, k: int) -> float:
+    """Fraction of queries where the true nearest neighbor is in top-k results."""
+    hits = sum(gt[0] in pred[:k] for pred, gt in zip(predicted_ids, ground_truth))
+    return hits / len(predicted_ids)
+
+ids, _ = search_batch(index, queries, k=10, nprobe=8)
+print(f"Recall@10: {recall_at_k(ids, gt, k=10):.3f}")   # expect ~0.90 with nprobe=8
+```
+
+A recall of ≥0.90 on SIFT1M with `nprobe=8` is a reasonable sanity check. Once confirmed, **this recall value becomes the fixed target** — all three schedulers must hit the same number to ensure fair throughput comparison (see Section 3 / Evaluation Advice).
+
+### Key Parameters
+
+| Parameter | Typical value | Effect |
+|-----------|--------------|--------|
+| `n_clusters` | 256 (small) – 4096 (large) | More clusters → shorter lists → faster scan, lower recall |
+| `nprobe` | 4–64 | More probes → higher recall, higher latency, more list overlap between queries |
+| `k` | 10–100 | Top-k neighbors to return |
+
+For this project, fix `n_clusters=256` and `k=10`, then vary `nprobe` to control the recall–speed tradeoff and the amount of inter-query cluster overlap (which directly affects the gain from cluster-based batching).
+
+### What the Schedulers Sit On Top Of
+
+The schedulers do **not** replace Faiss — they change *when* and *how many* queries are sent to Faiss:
+
+- **Sequential:** call `index.search(q[None,:], k)` once per query, in arrival order.
+- **Time-window:** collect queries for Δt ms, then call `index.search(batch, k)` once.
+- **Cluster-based:** inspect each query's top-`nprobe` centroids (via `quantizer.search`), group queries by centroid overlap, then call `index.search` per group.
+
+All three paths return identical results for the same queries; only throughput and latency differ.
+
+---
+
+## 4. Time-Window Batching — Design Notes
+
+### Core Trade-off
+
+A larger window produces a larger batch, which improves hardware utilization (better SIMD fill, fewer redundant cache loads), but increases the waiting time each individual query experiences before execution begins.
+
+### Dual-trigger Flush Mechanism
+
+The window uses two trigger conditions, whichever fires first:
+
+1. **Time trigger:** once Δt has elapsed since the window opened, the current batch is flushed immediately regardless of its size.
+2. **Size trigger:** once the batch accumulates `max_batch_size` queries, it is flushed immediately regardless of remaining time.
+
+This is a standard pattern in systems that buffer work (e.g., Kafka producer batching, database write buffers). Using only a time trigger wastes resources at low QPS (tiny batches) and risks memory pressure at high QPS (unbounded batches). Using only a size trigger causes unacceptable latency at low QPS (a single query may wait indefinitely).
+
+### Parameter Ranges
+
+Since a single IVF query takes roughly 0.1–10 ms depending on dataset size and `nprobe`, setting Δt too small (e.g., 0.1 ms) collapses to sequential execution, while setting it too large (e.g., 100 ms) adds unacceptable latency. Planned sweep:
+
+- Δt ∈ {0.5, 1, 2, 5, 10, 20, 50} ms
+- `max_batch_size` ∈ {32, 64, 128, 256}
+
+### Simulating Concurrent Arrivals
+
+Because this is not a live serving system, query arrivals are simulated using a Poisson process: given a target QPS λ, inter-arrival times are drawn from Exp(1/λ). The resulting timestamp sequence determines how queries fall into each time window. Varying λ explores the spectrum from low load (small batches, little batching benefit) to high load (large batches, high throughput but growing queue delay).
+
+### Latency Accounting
+
+A query's total latency is decomposed as:
+
+> *total latency = queue delay + batch execution time*
+
+where **queue delay** is the time spent waiting for the window to close, and **batch execution time** is the wall-clock time of the entire batch (not divided by batch size, since each query must wait for the full batch to complete). Reporting this decomposition explicitly shows how much latency comes from scheduling overhead versus actual compute.
+
+---
+
+## 5. Proposal Assessment
+
+### What's Strong
+
+**The framing is correct.** "We don't change the index, only the execution layer" is a clean, defensible contribution scope. It's narrow enough to execute in 5 weeks.
+
+**Time-window batching is well-specified.** The dual-trigger flush, Poisson arrival simulation, and latency decomposition (queue delay + execution time) show clear thinking. References [6] (Cooperative Scans) and [7] (Shared Workload Optimization) independently validate this "buffer and share" principle in classical database systems.
+
+**The hypothesis is testable and falsifiable.** Cluster-based batching is predicted to win on clustered workloads and lose on random ones. References [2] (Milvus query blocks) and [4] (IVF-RaBitQ GPU batching) both confirm the effect is real — this is not a long shot.
+
+---
+
+### Risks
+
+#### Risk 1 — Faiss already batches internally
+
+`index.search(queries, k)` where `queries` is a matrix does not loop sequentially — Faiss uses OpenMP to parallelize across queries internally. The gain measured by time-window batching could be Faiss's internal threading rather than the scheduling logic. Two ways to handle this:
+
+- **Disable Faiss threading** to isolate the scheduler's effect:
+  ```python
+  faiss.omp_set_num_threads(1)
+  ```
+- **Acknowledge it explicitly** and frame the contribution as "how to form the input batch", not "how to parallelize within it."
+
+Either is valid, but the choice must be made deliberately and stated in the paper.
+
+#### Risk 2 — Cluster-based batching is underspecified
+
+The time-window section has concrete parameters (Δt, `max_batch_size`, sweep ranges). The cluster-based section is still vague. Before implementation, define:
+
+- **Overlap metric:** exact same probe lists? Jaccard threshold? minimum shared list count?
+- **Grouping algorithm:** greedy assignment? graph coloring by shared lists?
+- **Latency of the grouping step:** the centroid-lookup pass (`quantizer.search`) adds overhead that must be accounted for in the latency decomposition.
+
+Without this, it is hard to implement or evaluate fairly.
+
+#### Risk 3 — Effect size may be small on in-memory CPU data
+
+The batching benefit is largest when data loading is the bottleneck (disk I/O, DRAM bandwidth). With everything in DRAM and Faiss's SIMD already engaged, the scheduler's marginal gain may be 10–20% rather than 2×. Reference [4] shows dramatic gains on GPU precisely because memory bandwidth is the bottleneck there; the in-memory CPU setup is a harder case.
+
+This is not fatal — a 10–20% throughput gain at the same recall is a valid result — but expectations in the introduction should be tempered and large speedups should not be promised.
+
+---
+
+### Advice
+
+1. **Fill in the introduction's related works gap.** The `(need to search similar works)` note should cite [2], [4], and [6] directly. Those works are already documented in Section 1.
+
+2. **Add implementation detail for cluster-based batching** comparable to the time-window section: overlap metric, grouping algorithm, and handling for queries that don't fit any group.
+
+3. **State the null hypothesis explicitly.** "If batching provides no benefit on in-memory CPU data, we expect all three strategies to perform similarly." Acknowledging this upfront makes a negative result a valid finding rather than a failure.
+
+4. **Run a microbenchmark early.** Before full experiments, measure cache miss rate with `perf stat -e cache-misses,cache-references` on a batched vs. sequential run. If cache misses drop measurably, the throughput story will follow.
+
+---
+
+## 5. Others
 
 ### Evaluation Advice
 
