@@ -3,7 +3,7 @@ from engine.data import read_fvecs, read_ivecs
 from engine.index import build_ivf_index, search_batch
 from engine.metrics import recall_at_k
 
-DATA_DIR = "data"
+DATA_DIR = "data/sift"
 N_CLUSTERS = 256
 NPROBE = 8
 K = 10
