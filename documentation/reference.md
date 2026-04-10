@@ -105,9 +105,9 @@ The core engine is the single-query IVF search baseline that all three scheduler
 ### Library
 
 ```
-pip install faiss-cpu        # CPU build, sufficient for this project
+uv add faiss-cpu        # CPU build, sufficient for this project
 # or
-pip install faiss-gpu        # if you have CUDA
+uv add faiss-gpu        # if you have CUDA
 ```
 
 Faiss is maintained by Meta FAIR (the authors of reference [1]) and implements exactly the IVF architecture described in the proposal.
