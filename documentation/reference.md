@@ -83,6 +83,26 @@ Introduces anisotropic quantization loss and AVX-accelerated distance kernels. S
 | **Fashion-MNIST** | 784 | 60,000 | 10,000 | [ANN-Benchmarks](https://ann-benchmarks.com/) | Higher-dimensional; tests whether batching benefits hold in different regimes. |
 | **NYTimes** | 256 | 290,000 | 10,000 | [ANN-Benchmarks](https://ann-benchmarks.com/) | Sparse-ish real data; another distribution to test against. |
 
+### What the Data Represents
+
+**SIFT1M (primary)** — SIFT stands for Scale-Invariant Feature Transform. Each vector is a 128-dimensional descriptor extracted from a small patch of an image — it captures the local gradient patterns around a keypoint (e.g., a corner or edge). The database contains 1 million such patches; the queries are 10,000 more patches; and the task is "for this query patch, which database patch looks most similar?"
+
+*Example:* imagine scanning two photos of the same building. A keypoint detector finds a distinctive window corner in both. The SIFT descriptor for that corner would be nearly identical across the two photos, so a nearest-neighbor search would correctly pair them. The dataset formalizes this at scale: 1M patches from a reference image collection, 10K patches to look up.
+
+Because SIFT descriptors come from real images, the vectors form natural geometric clusters (patches from the same scene or object type land close together). This makes the IVF cluster structure meaningful — nearby queries genuinely share probe lists.
+
+---
+
+**GloVe-100 (secondary)** — GloVe (Global Vectors) encodes each English word as a 100-dimensional vector trained on word co-occurrence statistics from a large text corpus. Words that appear in similar contexts end up close together in vector space.
+
+*Example:* the vectors for "king", "queen", "prince" cluster near each other; "dog", "cat", "puppy" form another cluster far away. A nearest-neighbor query for the vector of "laptop" would return "notebook", "computer", "keyboard", etc.
+
+GloVe is a useful second dataset because its cluster geometry is fundamentally different from SIFT: the clusters are semantic rather than geometric, they are less well-separated, and the dimensionality is slightly lower (100 vs. 128). If batching gains on SIFT also appear on GloVe, the result generalizes beyond image features.
+
+---
+
+**SIFT10K** — a 10,000-vector subset of SIFT1M. Same format, same structure, 100× smaller. No separate download needed (included in the SIFT1M tarball as `sift_small`). Use it to iterate quickly on code changes without waiting for the full 1M-vector index to build.
+
 ### Suggestion
 
 Use **SIFT1M** as the primary dataset (reviewers can contextualize your numbers easily) and **GloVe-100** as a secondary dataset for generalizability (different cluster structure).
