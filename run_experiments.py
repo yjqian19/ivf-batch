@@ -64,7 +64,7 @@ def main():
 
     delta_ts = [0.5, 1, 2, 5, 10, 20, 50]       # ms
     max_bss = [32, 64, 128, 256]
-    target_qps = 10000
+    target_qps = 2000
     arrivals = generate_arrivals(len(queries), target_qps)
 
     header = (f"  {'Δt_ms':>6} {'MaxBS':>6} {'AvgBS':>6} "
@@ -89,31 +89,43 @@ def main():
                   f"{np.percentile(lat, 95)*1000:>9.3f}ms "
                   f"{np.mean(qd)*1000:>9.3f}ms")
 
-    # ── 3  Cluster-based batching ─────────────────────────────────────────
-    section("Scheduler 3 — Cluster-Based Batching")
+    # ── 3  Cluster-based batching (same sweep as time-window) ──────────────
+    section("Scheduler 3 — Cluster-Based Batching  (sweep Δt × max_batch_size)")
+
+    print(f"\n  Arrival QPS = {target_qps}")
 
     for label, gmode, jt in [
         ("primary centroid", "primary", None),
         ("jaccard ≥ 0.25",  "jaccard", 0.25),
-        ("jaccard ≥ 0.50",  "jaccard", 0.50),
     ]:
-        kw = {"grouping": gmode}
-        if jt is not None:
-            kw["jaccard_threshold"] = jt
-        ids, _, s = run_cluster_batch(index, queries, k=K, nprobe=NPROBE, **kw)
-        r = recall_at_k(ids, gt, k=K)
-        gs = s["group_sizes"]
         print(f"\n  Grouping: {label}")
-        print(f"    Recall@{K}:      {r:.3f}")
-        print(f"    QPS:            {s['qps']:.0f}")
-        print(f"    Wall time:      {s['wall_time']:.3f}s")
-        print(f"    ├ quantizer:    {s['quantizer_time']*1000:.1f}ms")
-        print(f"    ├ grouping:     {s['grouping_time']*1000:.1f}ms")
-        print(f"    └ search:       {s['total_exec_time']:.3f}s")
-        print(f"    Groups:         {s['n_groups']}")
-        print(f"    Group sizes:    avg={np.mean(gs):.1f}  "
-              f"min={np.min(gs)}  max={np.max(gs)}  "
-              f"std={np.std(gs):.1f}")
+        header3 = (f"  {'Δt_ms':>6} {'MaxBS':>6} {'AvgBS':>6} "
+                   f"{'QPS':>8} {'Recall':>7} "
+                   f"{'AvgLat':>10} {'P95Lat':>10} {'AvgQD':>10} "
+                   f"{'Groups':>7} {'AvgGrp':>7}")
+        print(header3)
+        print("  " + "-" * (len(header3) - 2))
+
+        for dt in delta_ts:
+            for mbs in max_bss:
+                kw = {"grouping": gmode}
+                if jt is not None:
+                    kw["jaccard_threshold"] = jt
+                ids, _, s = run_cluster_batch(
+                    index, queries, arrivals, dt, mbs,
+                    k=K, nprobe=NPROBE, **kw,
+                )
+                r = recall_at_k(ids, gt, k=K)
+                lat = s["latencies"]
+                qd = s["queue_delays"]
+                avg_bs = np.mean(s["batch_sizes"])
+                gs = s["group_sizes"]
+                print(f"  {dt:>6.1f} {mbs:>6} {avg_bs:>6.1f} "
+                      f"{s['qps']:>8.0f} {r:>7.3f} "
+                      f"{np.mean(lat)*1000:>9.3f}ms "
+                      f"{np.percentile(lat, 95)*1000:>9.3f}ms "
+                      f"{np.mean(qd)*1000:>9.3f}ms "
+                      f"{s['n_groups']:>7} {np.mean(gs):>7.1f}")
 
     # ── 4  Workload comparison: random vs clustered ───────────────────────
     section("Workload Comparison — Random vs Clustered Queries")
@@ -138,7 +150,8 @@ def main():
               f"avg_lat={np.mean(s2['latencies'])*1000:.3f}ms")
 
         _, _, s3 = run_cluster_batch(
-            index, wl_q, k=K, nprobe=NPROBE, grouping="primary",
+            index, wl_q, arr, delta_t_ms=5, max_batch_size=128,
+            k=K, nprobe=NPROBE, grouping="primary",
         )
         print(f"    Cluster-batch: {s3['qps']:>8.0f} QPS  "
               f"wall={s3['wall_time']:.3f}s  "

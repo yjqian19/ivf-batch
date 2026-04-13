@@ -164,65 +164,110 @@ def _group_by_jaccard(centroid_ids, threshold=0.5):
     return groups
 
 
-def run_cluster_batch(index, queries, k=10, nprobe=8,
+def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
+                      k=10, nprobe=8,
                       grouping="primary", jaccard_threshold=0.5):
-    """Group queries by centroid overlap, then search per group.
+    """Time-window collection + intra-batch cluster grouping.
 
-    grouping="primary"  → group by nearest centroid (fast)
-    grouping="jaccard"  → greedy Jaccard-threshold grouping
+    Same dual-trigger as run_time_window (Δt OR max_batch_size), but within
+    each collected batch, queries are re-grouped by centroid overlap before
+    being sent to index.search.
     """
     index.nprobe = nprobe
     n = len(queries)
+    delta_t = delta_t_ms / 1000.0
+
     all_ids = np.empty((n, k), dtype=np.int64)
     all_dists = np.empty((n, k), dtype=np.float32)
+    latencies = np.empty(n)
+    queue_delays = np.empty(n)
 
-    # Step 1: quantizer lookup — find each query's top-nprobe centroids
     quantizer = faiss.downcast_index(index.quantizer)
-    t0 = time.perf_counter()
-    _, centroid_ids = quantizer.search(queries, nprobe)
-    quantizer_time = time.perf_counter() - t0
+    all_batch_sizes = []
+    all_group_sizes = []
+    total_quantizer_time = 0.0
+    total_grouping_time = 0.0
 
-    # Step 2: form groups
-    t0 = time.perf_counter()
-    if grouping == "primary":
-        groups = _group_by_primary(centroid_ids)
-    elif grouping == "jaccard":
-        groups = _group_by_jaccard(centroid_ids, jaccard_threshold)
-    else:
-        raise ValueError(f"Unknown grouping: {grouping}")
-    grouping_time = time.perf_counter() - t0
+    sim_time = 0.0
+    i = 0
+    t_wall = time.perf_counter()
 
-    # Step 3: execute each group
-    group_exec_times = []
-    query_exec_time = np.empty(n)
+    while i < n:
+        # ── Collect batch (same logic as time-window) ──
+        sim_time = max(sim_time, arrival_times[i])
+        window_open = sim_time
+        deadline = window_open + delta_t
+        batch_idx = []
 
-    t_exec = time.perf_counter()
-    for group in groups:
-        group_q = queries[group]
+        while i < n and len(batch_idx) < max_batch_size:
+            if arrival_times[i] <= deadline:
+                batch_idx.append(i)
+                i += 1
+            else:
+                break
+
+        if len(batch_idx) >= max_batch_size:
+            flush_time = arrival_times[batch_idx[-1]]
+        else:
+            flush_time = deadline
+
+        sim_time = max(sim_time, flush_time)
+        all_batch_sizes.append(len(batch_idx))
+
+        batch_q = queries[batch_idx]
+
+        # ── Quantizer lookup for this batch ──
         t0 = time.perf_counter()
-        D, I = index.search(group_q, k)
-        et = time.perf_counter() - t0
-        group_exec_times.append(et)
+        _, centroid_ids = quantizer.search(batch_q, nprobe)
+        q_time = time.perf_counter() - t0
+        total_quantizer_time += q_time
+        sim_time += q_time
 
-        for j, idx in enumerate(group):
-            all_ids[idx] = I[j]
-            all_dists[idx] = D[j]
-            query_exec_time[idx] = et
-    total_exec_time = time.perf_counter() - t_exec
+        # ── Group within the batch ──
+        t0 = time.perf_counter()
+        if grouping == "primary":
+            groups = _group_by_primary(centroid_ids)
+        elif grouping == "jaccard":
+            groups = _group_by_jaccard(centroid_ids, jaccard_threshold)
+        else:
+            raise ValueError(f"Unknown grouping: {grouping}")
+        g_time = time.perf_counter() - t0
+        total_grouping_time += g_time
+        sim_time += g_time
 
-    wall_time = quantizer_time + grouping_time + total_exec_time
-    group_sizes = np.array([len(g) for g in groups])
+        for g in groups:
+            all_group_sizes.append(len(g))
+
+        # ── Execute each sub-group ──
+        t0 = time.perf_counter()
+        for group in groups:
+            group_global = [batch_idx[j] for j in group]
+            group_q = queries[group_global]
+            D, I = index.search(group_q, k)
+            for j, idx in enumerate(group_global):
+                all_ids[idx] = I[j]
+                all_dists[idx] = D[j]
+        exec_time = time.perf_counter() - t0
+        sim_time += exec_time
+
+        # ── Record per-query latencies ──
+        for idx in batch_idx:
+            queue_delays[idx] = flush_time - arrival_times[idx]
+            latencies[idx] = queue_delays[idx] + q_time + g_time + exec_time
+
+    wall_time = time.perf_counter() - t_wall
 
     return all_ids, all_dists, {
-        "quantizer_time": quantizer_time,
-        "grouping_time": grouping_time,
-        "total_exec_time": total_exec_time,
+        "latencies": latencies,
+        "queue_delays": queue_delays,
         "wall_time": wall_time,
         "qps": n / wall_time,
-        "n_groups": len(groups),
-        "group_sizes": group_sizes,
-        "group_exec_times": np.array(group_exec_times),
-        "query_exec_time": query_exec_time,
+        "sim_time": sim_time,
+        "batch_sizes": np.array(all_batch_sizes),
+        "group_sizes": np.array(all_group_sizes),
+        "n_groups": len(all_group_sizes),
+        "quantizer_time": total_quantizer_time,
+        "grouping_time": total_grouping_time,
     }
 
 
