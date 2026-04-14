@@ -13,7 +13,7 @@ def generate_arrivals(n_queries, qps, seed=42):
 # ── Scheduler 1: Sequential ──────────────────────────────────────────────────
 
 def run_sequential(index, queries, k=10, nprobe=8):
-    """One query at a time — per-query scanning baseline."""
+    """One query at a time — same code path as batching but with batch_size=1."""
     n = len(queries)
     all_ids = np.empty((n, k), dtype=np.int64)
     all_dists = np.empty((n, k), dtype=np.float32)
@@ -21,11 +21,13 @@ def run_sequential(index, queries, k=10, nprobe=8):
 
     t_wall = time.perf_counter()
     for i in range(n):
+        q = queries[i:i+1]
         t0 = time.perf_counter()
-        D, I = index.search_one(queries[i], k, nprobe)
+        centroid_ids = index.quantizer_search(q, nprobe)
+        D, I = index.search_batch_per_list(q, centroid_ids, k)
         query_times[i] = time.perf_counter() - t0
-        all_ids[i] = I
-        all_dists[i] = D
+        all_ids[i] = I[0]
+        all_dists[i] = D[0]
     wall_time = time.perf_counter() - t_wall
 
     return all_ids, all_dists, {
