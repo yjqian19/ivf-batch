@@ -1,6 +1,5 @@
 import numpy as np
 import time
-import faiss
 from collections import defaultdict
 
 
@@ -14,8 +13,7 @@ def generate_arrivals(n_queries, qps, seed=42):
 # ── Scheduler 1: Sequential ──────────────────────────────────────────────────
 
 def run_sequential(index, queries, k=10, nprobe=8):
-    """One query at a time — true sequential baseline."""
-    index.nprobe = nprobe
+    """One query at a time — per-query scanning baseline."""
     n = len(queries)
     all_ids = np.empty((n, k), dtype=np.int64)
     all_dists = np.empty((n, k), dtype=np.float32)
@@ -24,10 +22,10 @@ def run_sequential(index, queries, k=10, nprobe=8):
     t_wall = time.perf_counter()
     for i in range(n):
         t0 = time.perf_counter()
-        D, I = index.search(queries[i : i + 1], k)
+        D, I = index.search_one(queries[i], k, nprobe)
         query_times[i] = time.perf_counter() - t0
-        all_ids[i] = I[0]
-        all_dists[i] = D[0]
+        all_ids[i] = I
+        all_dists[i] = D
     wall_time = time.perf_counter() - t_wall
 
     return all_ids, all_dists, {
@@ -41,12 +39,7 @@ def run_sequential(index, queries, k=10, nprobe=8):
 
 def run_time_window(index, queries, arrival_times, delta_t_ms, max_batch_size,
                     k=10, nprobe=8):
-    """Dual-trigger flush: whichever fires first — Δt elapsed OR batch full.
-
-    Simulates a single-threaded server processing batched requests.
-    sim_time tracks the virtual clock; wall_time tracks real execution.
-    """
-    index.nprobe = nprobe
+    """Dual-trigger flush with per-list batch scanning."""
     n = len(queries)
     delta_t = delta_t_ms / 1000.0
 
@@ -62,37 +55,34 @@ def run_time_window(index, queries, arrival_times, delta_t_ms, max_batch_size,
     t_wall = time.perf_counter()
 
     while i < n:
-        # Wait for first query of this window
         sim_time = max(sim_time, arrival_times[i])
         window_open = sim_time
         deadline = window_open + delta_t
         batch_idx = []
 
-        # Collect until a trigger fires
         while i < n and len(batch_idx) < max_batch_size:
             if arrival_times[i] <= deadline:
                 batch_idx.append(i)
                 i += 1
             else:
-                break  # time trigger — no more queries before deadline
+                break
 
-        # Determine flush time
         if len(batch_idx) >= max_batch_size:
-            flush_time = arrival_times[batch_idx[-1]]   # size trigger
+            flush_time = arrival_times[batch_idx[-1]]
         else:
-            flush_time = deadline                        # time trigger
+            flush_time = deadline
 
         sim_time = max(sim_time, flush_time)
 
-        # Execute batch
+        # Execute batch: quantizer search + per-list scanning
         batch_q = queries[batch_idx]
         t0 = time.perf_counter()
-        D, I = index.search(batch_q, k)
+        centroid_ids = index.quantizer_search(batch_q, nprobe)
+        D, I = index.search_batch_per_list(batch_q, centroid_ids, k)
         exec_time = time.perf_counter() - t0
         sim_time += exec_time
         batch_sizes.append(len(batch_idx))
 
-        # Record per-query results
         for j, idx in enumerate(batch_idx):
             all_ids[idx] = I[j]
             all_dists[idx] = D[j]
@@ -124,12 +114,10 @@ def _group_by_primary(centroid_ids):
 
 
 def _group_by_jaccard(centroid_ids, threshold=0.5):
-    """Greedy grouping: a query joins the current group if its probe-set
-    Jaccard similarity with the group seed exceeds `threshold`."""
+    """Greedy grouping by Jaccard similarity of probe sets."""
     n = len(centroid_ids)
     probe_sets = [set(centroid_ids[i].tolist()) for i in range(n)]
 
-    # Inverted index: centroid → queries that probe it (fast candidate lookup)
     c2q = defaultdict(set)
     for i in range(n):
         for c in probe_sets[i]:
@@ -141,7 +129,6 @@ def _group_by_jaccard(centroid_ids, threshold=0.5):
     for i in range(n):
         if assigned[i]:
             continue
-        # Candidates: queries sharing ≥1 centroid with query i
         candidates = set()
         for c in probe_sets[i]:
             candidates.update(c2q[c])
@@ -167,13 +154,7 @@ def _group_by_jaccard(centroid_ids, threshold=0.5):
 def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
                       k=10, nprobe=8,
                       grouping="primary", jaccard_threshold=0.5):
-    """Time-window collection + intra-batch cluster grouping.
-
-    Same dual-trigger as run_time_window (Δt OR max_batch_size), but within
-    each collected batch, queries are re-grouped by centroid overlap before
-    being sent to index.search.
-    """
-    index.nprobe = nprobe
+    """Time-window collection + intra-batch cluster grouping + per-list scanning."""
     n = len(queries)
     delta_t = delta_t_ms / 1000.0
 
@@ -182,7 +163,6 @@ def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
     latencies = np.empty(n)
     queue_delays = np.empty(n)
 
-    quantizer = faiss.downcast_index(index.quantizer)
     all_batch_sizes = []
     all_group_sizes = []
     total_quantizer_time = 0.0
@@ -193,7 +173,7 @@ def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
     t_wall = time.perf_counter()
 
     while i < n:
-        # ── Collect batch (same logic as time-window) ──
+        # ── Collect batch (same dual-trigger logic) ──
         sim_time = max(sim_time, arrival_times[i])
         window_open = sim_time
         deadline = window_open + delta_t
@@ -216,14 +196,14 @@ def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
 
         batch_q = queries[batch_idx]
 
-        # ── Quantizer lookup for this batch ──
+        # ── Quantizer lookup ──
         t0 = time.perf_counter()
-        _, centroid_ids = quantizer.search(batch_q, nprobe)
+        centroid_ids = index.quantizer_search(batch_q, nprobe)
         q_time = time.perf_counter() - t0
         total_quantizer_time += q_time
         sim_time += q_time
 
-        # ── Group within the batch ──
+        # ── Group within batch ──
         t0 = time.perf_counter()
         if grouping == "primary":
             groups = _group_by_primary(centroid_ids)
@@ -238,19 +218,19 @@ def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
         for g in groups:
             all_group_sizes.append(len(g))
 
-        # ── Execute each sub-group ──
+        # ── Execute each sub-group with per-list scanning ──
         t0 = time.perf_counter()
         for group in groups:
             group_global = [batch_idx[j] for j in group]
             group_q = queries[group_global]
-            D, I = index.search(group_q, k)
+            group_cids = centroid_ids[group]
+            D, I = index.search_batch_per_list(group_q, group_cids, k)
             for j, idx in enumerate(group_global):
                 all_ids[idx] = I[j]
                 all_dists[idx] = D[j]
         exec_time = time.perf_counter() - t0
         sim_time += exec_time
 
-        # ── Record per-query latencies ──
         for idx in batch_idx:
             queue_delays[idx] = flush_time - arrival_times[idx]
             latencies[idx] = queue_delays[idx] + q_time + g_time + exec_time
@@ -271,24 +251,19 @@ def run_cluster_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
     }
 
 
-def generate_clustered_queries(index, base, n_queries=10000, n_centers=10, seed=42):
-    """Create a clustered workload: queries drawn from a few regions of vector space.
-    Best case for cluster-based batching (high centroid overlap)."""
+def generate_clustered_queries(index, n_queries=10000, n_centers=10, seed=42):
+    """Create a clustered workload from vectors in selected inverted lists."""
     rng = np.random.default_rng(seed)
-    quantizer = faiss.downcast_index(index.quantizer)
-    n_centroids = quantizer.ntotal
-    d = base.shape[1]
-
-    # Extract all centroids as a numpy array
-    centroids = quantizer.reconstruct_n(0, n_centroids)
-
-    selected = rng.choice(n_centroids, n_centers, replace=False)
+    selected = rng.choice(index.n_clusters, n_centers, replace=False)
     per_center = n_queries // n_centers
 
     parts = []
     for c_id in selected:
-        centroid = centroids[c_id : c_id + 1].copy()
-        _, nn_ids = index.search(centroid, per_center)
-        parts.append(base[nn_ids[0]])
+        vecs = index.inverted_lists[c_id]
+        if len(vecs) >= per_center:
+            idx = rng.choice(len(vecs), per_center, replace=False)
+            parts.append(vecs[idx].copy())
+        else:
+            parts.append(vecs.copy())
 
     return np.vstack(parts).astype(np.float32)

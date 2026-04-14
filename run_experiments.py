@@ -3,7 +3,7 @@
 import time
 import numpy as np
 from engine.data import read_fvecs, read_ivecs
-from engine.index import build_ivf_index
+from engine.custom_index import build_custom_index
 from engine.metrics import recall_at_k
 from engine.schedulers import (
     generate_arrivals,
@@ -44,9 +44,9 @@ def main():
     gt = read_ivecs(f"{DATA_DIR}/sift_groundtruth.ivecs")
     print(f"  base={base.shape}  queries={queries.shape}  gt={gt.shape}")
 
-    print(f"\nBuilding IVF index (n_clusters={N_CLUSTERS}) …")
+    print(f"\nBuilding custom IVF index (n_clusters={N_CLUSTERS}) …")
     t0 = time.perf_counter()
-    index = build_ivf_index(base, n_clusters=N_CLUSTERS)
+    index = build_custom_index(base, n_clusters=N_CLUSTERS)
     print(f"  done in {time.perf_counter() - t0:.2f}s")
 
     # ── 1  Sequential baseline ────────────────────────────────────────────
@@ -96,7 +96,6 @@ def main():
 
     for label, gmode, jt in [
         ("primary centroid", "primary", None),
-        ("jaccard ≥ 0.25",  "jaccard", 0.25),
     ]:
         print(f"\n  Grouping: {label}")
         header3 = (f"  {'Δt_ms':>6} {'MaxBS':>6} {'AvgBS':>6} "
@@ -130,7 +129,7 @@ def main():
     # ── 4  Workload comparison: random vs clustered ───────────────────────
     section("Workload Comparison — Random vs Clustered Queries")
 
-    clustered = generate_clustered_queries(index, base, n_queries=10000, seed=42)
+    clustered = generate_clustered_queries(index, n_queries=10000, seed=42)
     arr = generate_arrivals(10000, target_qps)
 
     for wl_name, wl_q in [("Random (sift_query)", queries),
