@@ -1,6 +1,9 @@
 """Run all three schedulers and compare throughput / latency / recall."""
 
 import time
+import sys
+import os
+from datetime import datetime
 import numpy as np
 from engine.data import read_fvecs, read_ivecs
 from engine.custom_index import build_custom_index
@@ -24,6 +27,25 @@ def fmt_lat(times):
     return (f"avg={np.mean(times)*1000:.3f}ms  "
             f"p95={np.percentile(times, 95)*1000:.3f}ms  "
             f"p99={np.percentile(times, 99)*1000:.3f}ms")
+
+
+class Tee:
+    """Write to both stdout and a file simultaneously."""
+    def __init__(self, filepath):
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        self.file = open(filepath, "w")
+        self.stdout = sys.stdout
+
+    def write(self, data):
+        self.stdout.write(data)
+        self.file.write(data)
+
+    def flush(self):
+        self.stdout.flush()
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
 
 
 def section(title):
@@ -137,23 +159,38 @@ def main():
         print(f"\n  Workload: {wl_name}")
 
         _, _, s1 = run_sequential(index, wl_q, k=K, nprobe=NPROBE)
+        lat1 = s1["query_times"]
         print(f"    Sequential:    {s1['qps']:>8.0f} QPS  "
-              f"wall={s1['wall_time']:.3f}s")
+              f"wall={s1['wall_time']:.3f}s  "
+              f"avg_lat={np.mean(lat1)*1000:.3f}ms  "
+              f"p95_lat={np.percentile(lat1, 95)*1000:.3f}ms  "
+              f"p99_lat={np.percentile(lat1, 99)*1000:.3f}ms")
 
         _, _, s2 = run_time_window(
             index, wl_q, arr, delta_t_ms=5, max_batch_size=128,
             k=K, nprobe=NPROBE,
         )
+        lat2 = s2["latencies"]
         print(f"    Time-window:   {s2['qps']:>8.0f} QPS  "
               f"wall={s2['wall_time']:.3f}s  "
-              f"avg_lat={np.mean(s2['latencies'])*1000:.3f}ms")
+              f"avg_lat={np.mean(lat2)*1000:.3f}ms  "
+              f"p95_lat={np.percentile(lat2, 95)*1000:.3f}ms  "
+              f"p99_lat={np.percentile(lat2, 99)*1000:.3f}ms  "
+              f"avg_qd={np.mean(s2['queue_delays'])*1000:.3f}ms  "
+              f"avg_bs={np.mean(s2['batch_sizes']):.1f}")
 
         _, _, s3 = run_cluster_batch(
             index, wl_q, arr, delta_t_ms=5, max_batch_size=128,
             k=K, nprobe=NPROBE, grouping="primary",
         )
+        lat3 = s3["latencies"]
         print(f"    Cluster-batch: {s3['qps']:>8.0f} QPS  "
               f"wall={s3['wall_time']:.3f}s  "
+              f"avg_lat={np.mean(lat3)*1000:.3f}ms  "
+              f"p95_lat={np.percentile(lat3, 95)*1000:.3f}ms  "
+              f"p99_lat={np.percentile(lat3, 99)*1000:.3f}ms  "
+              f"avg_qd={np.mean(s3['queue_delays'])*1000:.3f}ms  "
+              f"avg_bs={np.mean(s3['batch_sizes']):.1f}  "
               f"groups={s3['n_groups']}  "
               f"avg_group={np.mean(s3['group_sizes']):.1f}")
 
@@ -161,4 +198,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    result_path = f"results/experiment_{timestamp}.txt"
+    tee = Tee(result_path)
+    sys.stdout = tee
+    try:
+        main()
+    finally:
+        sys.stdout = tee.stdout
+        tee.close()
+        print(f"\nResults saved to {result_path}")

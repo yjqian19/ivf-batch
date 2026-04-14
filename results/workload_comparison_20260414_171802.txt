@@ -1,0 +1,27 @@
+======================================================================
+  IVF Batch Scheduling — Workload Comparison
+  Config: Δt=5ms, MaxBS=128, nprobe=8, k=10
+======================================================================
+
+Loading data …
+  base=(1000000, 128)  queries=(10000, 128)  gt=(10000, 100)
+
+Building custom IVF index (n_clusters=256) …
+  done in 1.16s
+
+Generating clustered queries (10 regions) …
+
+──────────────────────────────────────────────────────────────────────
+  Workload Comparison — Random vs Clustered Queries
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (sift_query)
+    Sequential:        1942 QPS  wall=5.148s  recall=0.956  avg_lat=0.514ms  p95_lat=0.694ms  p99_lat=0.770ms
+    Time-window:       2281 QPS  wall=4.385s  recall=0.956  avg_lat=58.791ms  p95_lat=88.220ms  p99_lat=103.812ms  avg_qd=21.003ms  avg_bs=82.0
+    Cluster-batch:     2019 QPS  wall=4.953s  recall=0.956  avg_lat=91.681ms  p95_lat=123.567ms  p99_lat=131.116ms  avg_qd=30.576ms  avg_bs=119.0  groups=7450  avg_group=1.3
+
+  Workload: Clustered (10 regions)
+    Sequential:        1975 QPS  wall=5.063s  avg_lat=0.506ms  p95_lat=0.673ms  p99_lat=0.763ms
+    Time-window:       2373 QPS  wall=4.214s  avg_lat=51.184ms  p95_lat=95.297ms  p99_lat=109.437ms  avg_qd=18.646ms  avg_bs=64.1
+    Cluster-batch:     2409 QPS  wall=4.151s  avg_lat=46.257ms  p95_lat=81.875ms  p99_lat=100.825ms  avg_qd=16.990ms  avg_bs=60.2  groups=175  avg_group=57.1
+
