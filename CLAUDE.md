@@ -45,6 +45,19 @@ Download datasets:
 
 When regenerating the HTML from Markdown, reapply these overrides in the CSS block.
 
+To export to A4 PDF using Chrome headless:
+
+```bash
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new \
+  --no-sandbox \
+  --print-to-pdf="documentation/midterm_report.pdf" \
+  --print-to-pdf-no-header \
+  --no-pdf-header-footer \
+  --paper-size=A4 \
+  "file:///Volumes/yjbolt/projects/ivf-batch/documentation/midterm_report.html"
+```
+
 ## Reference Files
 
 - `documentation/project_proposal/project_proposal.md` — original proposal
