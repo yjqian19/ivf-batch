@@ -70,11 +70,20 @@ d = ‖q‖² + list_norms[42] - 2 × (inverted_lists[42] @ q)
 1. 先对所有 100 个 query 做 quantizer_search，得到每个 query 要探测哪些 cluster
 2. 构建倒排映射：cluster 42 → [query 3, query 17, query 58, ...]
 3. 对每个 cluster（只加载一次）：
-       把需要它的所有 query 批量算完距离  ← 此时 list 还在 CPU cache 里
+       把需要它的所有 m 个 query 组成矩阵 Q (m, d)，
+       做一次 GEMM：vecs (n_c, d) @ Q.T (d, m) → dots (n_c, m)，
+       再按列取出每个 query 的距离向量  ← list 数据在 L1/L2 cache 里被所有 m 个 query 复用
 4. 对每个 query 汇总候选 → top-k
 ```
 
-cluster 42 的 4000 条向量只从内存读一次，但同时为多个 query 服务。query 之间 centroid 重叠越多，cache 复用收益越大。
+cluster 42 的 4000 条向量只从内存读一次，但同时为多个 query 服务。
+
+**GEMV vs GEMM 的区别**
+
+- **GEMV**（GEneral Matrix-Vector multiply，矩阵 × 向量）：形如 `(n_c, d) @ (d,) → (n_c,)`，对单个 query 计算距离。`vecs` 的每一行从内存读出来，乘一次就用完，arithmetic intensity 是 O(1)——计算量和内存访问量几乎等比，完全受内存带宽瓶颈，CPU 的 SIMD 算力大量闲置。
+- **GEMM**（GEneral Matrix-Matrix multiply，矩阵 × 矩阵）：形如 `(n_c, d) @ (d, m) → (n_c, m)`，对同一个 cluster 的 m 个 query 一次性计算。BLAS 的 GEMM 实现会做 register blocking 和 cache blocking：把 `vecs` 的一个小 tile 装进 L1 cache，对所有 m 个 query 都用它算一遍再换下一个 tile，arithmetic intensity 是 O(m)。m 越大，每次内存访问摊薄的计算越多，AVX/AVX-512 越能跑满。
+
+query 之间 centroid 重叠越多（m 越大），GEMM 收益越大。random workload 下 m ≈ 1–3，优势有限；clustered workload 下 m 可达几十甚至上百，性能差距显著。
 
 ---
 

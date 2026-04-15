@@ -11,7 +11,7 @@ Xiangyu Guan — xiang949@mit.edu
 
 | Task | Complete | Pending |
 |---|---|---|
-| Core engine | IVF index, data loading, single-query search | — |
+| Core engine | custom engine based on FAISS package, single-threaded  | — |
 | Schedulers | Sequential, Time-Window, Cluster-Based | Optimize Cluster-Based Method |
 | Evaluation | scheduler parameter sweep, workload comparison (random vs. clustered) | Complete cluster query testset and sweep, multi-run, add metrics |
 

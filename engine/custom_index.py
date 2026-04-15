@@ -93,9 +93,11 @@ class CustomIVFIndex:
             v_ids = self.vector_ids[list_id]           # (n_c,)
             v_norms = self.list_norms[list_id]         # (n_c,)
 
-            for q_idx in q_indices:
-                # vecs is still hot in cache from the previous iteration
-                d = q_norms[q_idx] + v_norms - 2.0 * (vecs @ queries[q_idx])
+            # GEMM: compute distances for all queries sharing this list at once
+            q_mat = queries[q_indices]                 # (m, d)
+            dots = vecs @ q_mat.T                      # (n_c, m)
+            for i, q_idx in enumerate(q_indices):
+                d = q_norms[q_idx] + v_norms - 2.0 * dots[:, i]
                 cand_d[q_idx].append(d)
                 cand_i[q_idx].append(v_ids)
 
