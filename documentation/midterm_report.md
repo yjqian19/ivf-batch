@@ -7,17 +7,13 @@ Xiangyu Guan — xiang949@mit.edu
 
 ## 1. Project Status
 
-**Tasks**
-
-| Task | Complete | Pending |
+| Tasks | Complete | Pending |
 |---|---|---|
-| Core engine | custom engine based on FAISS package, single-threaded  | — |
-| Schedulers | Sequential, Time-Window, Cluster-Based | Optimize Cluster-Based Method |
-| Evaluation | scheduler parameter sweep, workload comparison (random vs. clustered) | Complete cluster query testset and sweep, multi-run, add metrics |
+| Core engine | custom IVF engine, MV + MM scan modes | — |
+| Schedulers | Sequential, Batch(MV), Batch(MM) | optimization |
+| Evaluation | parameter sweep, random vs. clustered comparison | clustered query construction, multi-run, sweep under clustered workload |
 
-**Deliverables**
-
-| Deliverable | Complete | Pending |
+| Deliverables | Complete | Pending |
 |---|---|---|
 | A working system | all | — |
 | Measured performance differences | First-round results on SIFT1M | Mentioned above in the evaluation part |
@@ -25,7 +21,37 @@ Xiangyu Guan — xiang949@mit.edu
 
 ---
 
-## 2. Experiment Setup
+## 2. System Overview
+
+### Engine
+
+Our engine follows the IVF design from Faiss: base vectors are partitioned into 256 clusters via k-means, each cluster maintaining an inverted list. We use Faiss for centroid training but replace `index.search()` with a custom single-threaded implementation. Faiss's search is a stateless black box that processes each query independently, making cross-query optimizations invisible. Our engine exposes centroid lookup and list scanning as separate interfaces, giving the scheduler direct control over execution.
+
+### Search Methods
+
+- **`search_one`** — single-query path: centroid lookup → scan 8 lists → top-k. Used by Sequential.
+- **`search_batch_per_list`** — batch path with a list-major scan: iterates over inverted lists; for each list, computes distances for all queries that probe it before moving to the next. Each list is loaded from memory exactly once. Used by both batching schedulers, with two inner implementations:
+
+| Mode | Distance computation per list | When efficient |
+|---|---|---|
+| **Batch(MV)** | loop over queries, each a matrix × vector (`vecs @ q`) | small m, random queries |
+| **Batch(MM)** | one matrix × matrix (`vecs @ Q.T`) for all m queries at once | large m, clustered queries |
+
+Batch(MM) amortizes memory bandwidth across all `m` queries sharing a list, but adds overhead when `m` is small.
+
+### Schedulers
+
+The experiment compares three configurations:
+
+- **Sequential** — `search_one`, one query at a time, no batching
+- **Batch(MV)** — time-window batching + MV scan
+- **Batch(MM)** — time-window batching + MM scan
+
+Time-window batching uses a dual-trigger flush: whichever fires first between time limit Δt and maximum batch size MaxBS.
+
+---
+
+## 3. Experiment Setup
 
 - **Dataset:** SIFT1M (1M × 128-d, L2 distance)
 - **Device:** MacBook Pro, Apple M3 Pro, 18 GB RAM
@@ -35,64 +61,62 @@ Xiangyu Guan — xiang949@mit.edu
   - *Random* — queries sampled uniformly, probing largely disjoint inverted lists
   - *Clustered* — queries drawn from 10 spatial regions, with high centroid overlap across queries
 
-  We test both because the benefit of cluster-based batching depends entirely on centroid overlap between concurrent queries — random is the worst case, clustered is the best case.
+  We test both because the number of queries sharing each inverted list (m) depends on workload structure — random is the worst case for batching, clustered is the best case.
 
-## 3. Results
+## 4. Results
 
 ### Random Queries
 
-| Scheduler | Recall@10 | QPS | Avg Lat | P95 Lat |
-|---|---|---|---|---|
-| Sequential | 0.956 | 1836 | 0.5 ms | 0.7 ms |
-| Time-Window | 0.956 | 2257 (+23%) | 63.7 ms (×117) | 93.0 ms (×126) |
-| Cluster-Batch | 0.956 | 1954 (+6%) | 94.8 ms (×174) | 126.5 ms (×171) |
+| | Sequential | Batch(MV) | Batch(MM) |
+|---|---|---|---|
+| Recall@10 | 0.956 | 0.956 | 0.956 |
+| QPS | 1793 | **2212** | 1721 |
+| Avg Latency (ms) | **0.6** | 72.1 | 109.8 |
+| P95 Latency (ms) | **0.8** | 103.4 | 135.7 |
 
-All three schedulers achieve identical Recall@10=0.956. Time-Window gains +23% QPS over Sequential at a 117× latency cost. Cluster-Batch gains only +6% QPS with higher latency overhead, due to near-singleton groups on random queries.
+Batch(MV) achieves the highest throughput (+23% over Sequential), at the cost of ×129 higher average latency due to queuing. Batch(MM) underperforms Sequential (−4% QPS) — on random queries, each list is shared by only ~4 queries on average, so GEMM adds matrix construction overhead without arithmetic intensity benefit, pushing average latency to ×197 over Sequential.
 
 ### Clustered Queries
 
-| Scheduler | QPS | Avg Lat | P95 Lat |
+| | Sequential | Batch(MV) | Batch(MM) |
 |---|---|---|---|
-| Sequential | 1943 | 0.5 ms | 0.7 ms |
-| Time-Window | 2351 (+21%) | 52.4 ms (×102) | 93.5 ms (×133) |
-| Cluster-Batch | 2337 (+20%) | 55.4 ms (×108) | 104.5 ms (×149) |
+| Recall@10 | — | — | — |
+| QPS | 1896 | 2300 | **2571** |
+| Avg Latency (ms) | **0.5** | 58.8 | 33.3 |
+| P95 Latency (ms) | **0.7** | 104.1 | 63.4 |
 
+Recall is not reported: clustered queries are sampled from base vectors, making self-retrieval recall undefined. With clustered queries, many queries share the same lists (large m), and Batch(MM) achieves the best throughput (+36% over Sequential). Notably, Batch(MM) also has lower latency than Batch(MV) — ×63 vs ×112 over Sequential — because GEMM's higher arithmetic intensity reduces scan time enough to more than offset queuing delay.
 
-Both schedulers gain +20–21% QPS, versus only +4% for Cluster-Batch on random queries — confirming that spatial locality significantly amplifies batching benefit. Recall is not reported: clustered queries are sampled from base vectors, so self-retrieval makes it undefined.
+### MV vs. MM: the role of m
 
-### Cluster-Batch: Random vs. Clustered Workload
-
-| Workload | QPS | Groups | Avg Group Size |
-|---|---|---|---|
-| Random | 1954 | 7452 | 1.3 |
-| Clustered | 2337 (+20%) | 158 (−98%) | 63.3 (+49×) |
-
-
-On clustered queries, group count drops by 98% and average group size grows 49×, which explains the +20% QPS gain. On random queries, near-singleton groups mean the grouping step adds overhead with no sharing benefit, leaving QPS nearly unchanged from Sequential.
+The key variable is m — the number of queries sharing each inverted list per batch. On random queries, m is small and GEMM overhead dominates. On clustered queries, m is large and GEMM's O(m) arithmetic intensity pays off. This suggests an adaptive strategy: use MM only when m exceeds a threshold.
 
 
 ---
 
-## 4. Potential Problems
+## 5. Potential Problems
 
 1. **Clustered query workload construction is incomplete.**
-The current clustered queries are sampled directly from the base vectors, meaning each query already exists in the index. As a result, the index will always retrieve the query itself as the nearest neighbor (distance = 0), which does not reflect a realistic search scenario and makes recall undefined without excluding self-matches. The current results show promising trends but are based on a preliminary workload construction. A more realistic clustered workload — where queries are near but distinct from base vectors — remains to be built.
+The current clustered queries are sampled directly from base vectors, so each query exists in the index and self-retrieval makes recall undefined. A more realistic construction — queries near but distinct from base vectors — remains to be built.
 
-2. **Cluster-based scheduler has room for improvement.**
-The primary-centroid grouping degenerates on random workloads (AvgGrp 1.1–1.7). We are exploring Jaccard-similarity grouping as an alternative, which is implemented but not yet fully tested.
+2. **Batch(MM) underperforms on random queries.**
+When m is small, GEMM overhead hurts rather than helps. An adaptive scan mode that switches between MV and MM based on observed m per batch would eliminate this regression.
 
 3. **Results are based on a single run.**
 All numbers come from one run. Multi-run experiments (mean ± std) would improve statistical credibility.
 
 4. **Parameter sweep was only conducted under random queries.**
-The clustered workload comparison uses a fixed config. Running the same sweep under clustered conditions may reveal different optimal parameters.
+Running the same Δt × MaxBS sweep under clustered conditions may reveal different optimal parameters and a different MV vs. MM crossover point.
 
 5. **Additional metrics could strengthen the argument.**
-Current metrics (QPS, recall, latency) do not directly demonstrate the cache-locality effect that motivates this project. Two additions would be most meaningful: (1) *Cache miss rate* — measures how often the CPU has to fetch data from main memory rather than cache; a lower rate for larger batches would directly validate the per-list reuse argument. (2) *Latency decomposition for Scheduler 3* — breaking total latency into queue delay, quantizer time, grouping time, and scan time would show exactly where the overhead goes on random vs. clustered workloads, and whether grouping or fragmented execution is the bottleneck.
+Cache miss rate (`perf stat`) would directly validate the per-list reuse effect. Latency decomposition (queue delay vs. scan time) would show whether throughput gains come from better compute utilization or simply larger batches.
+
+6. **Results are limited to a single-threaded setting.**
+The engine is single-threaded by design to isolate scheduling effects. On a multi-core CPU, queries can be parallelized across cores, which would reduce the relative benefit of batching. Whether the gains observed here survive in a multi-threaded setting remains to be evaluated.
 
 ---
 
-## 5. Updated Timeline
+## 6. Updated Timeline
 
 The project is on schedule. Phase 1 work (Mar 27 → Apr 14) is complete as planned.
 
@@ -104,7 +128,7 @@ The project is on schedule. Phase 1 work (Mar 27 → Apr 14) is complete as plan
 
 ---
 
-## 6. Division of Work
+## 7. Division of Work
 
 | Member | So Far | Next |
 |---|---|---|
@@ -113,4 +137,4 @@ The project is on schedule. Phase 1 work (Mar 27 → Apr 14) is complete as plan
 
 ---
 
-## 7. Questions
+## 8. Questions

@@ -60,7 +60,7 @@ class CustomIVFIndex:
 
     # ── Per-list batch search (core innovation) ──────────────────────────────
 
-    def search_batch_per_list(self, queries, centroid_ids, k):
+    def search_batch_per_list(self, queries, centroid_ids, k, mode="mv"):
         """Scan each inverted list once for all queries that need it.
 
         Parameters
@@ -68,6 +68,8 @@ class CustomIVFIndex:
         queries      : (n, d) float32
         centroid_ids : (n, nprobe) int64  — from quantizer_search
         k            : int
+        mode         : "mv" — per-query GEMV loop (matrix × vector)
+                       "mm" — per-list GEMM (matrix × matrix), better for large m
 
         Returns
         -------
@@ -93,13 +95,20 @@ class CustomIVFIndex:
             v_ids = self.vector_ids[list_id]           # (n_c,)
             v_norms = self.list_norms[list_id]         # (n_c,)
 
-            # GEMM: compute distances for all queries sharing this list at once
-            q_mat = queries[q_indices]                 # (m, d)
-            dots = vecs @ q_mat.T                      # (n_c, m)
-            for i, q_idx in enumerate(q_indices):
-                d = q_norms[q_idx] + v_norms - 2.0 * dots[:, i]
-                cand_d[q_idx].append(d)
-                cand_i[q_idx].append(v_ids)
+            if mode == "mm":
+                # GEMM: one matrix multiply for all m queries sharing this list
+                q_mat = queries[q_indices]             # (m, d)
+                dots = vecs @ q_mat.T                  # (n_c, m)
+                for i, q_idx in enumerate(q_indices):
+                    d = q_norms[q_idx] + v_norms - 2.0 * dots[:, i]
+                    cand_d[q_idx].append(d)
+                    cand_i[q_idx].append(v_ids)
+            else:
+                # MV: per-query matrix-vector multiply
+                for q_idx in q_indices:
+                    d = q_norms[q_idx] + v_norms - 2.0 * (vecs @ queries[q_idx])
+                    cand_d[q_idx].append(d)
+                    cand_i[q_idx].append(v_ids)
 
         # Extract top-k per query
         out_d = np.empty((n, k), dtype=np.float32)

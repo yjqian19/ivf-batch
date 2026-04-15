@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A research project comparing three query scheduling strategies for IVF-based vector search on a single machine, without modifying the index structure:
+A research project comparing three query execution strategies for IVF-based vector search on a single machine, without modifying the index structure:
 
 1. **Sequential** — baseline, one query at a time
-2. **Time-window batching** — group queries by arrival time, dual-trigger flush (time Δt OR max batch size)
-3. **Cluster-based batching** — group queries by shared inverted lists they probe
+2. **Batch(MV)** — time-window batching, per-query GEMV scan inside each inverted list
+3. **Batch(MM)** — time-window batching, per-list GEMM scan (matrix × matrix across all queries sharing a list)
 
-**Goal:** improve throughput and cache efficiency by reorganizing query execution, not the index.
+**Goal:** improve throughput by reorganizing query execution, not the index. The key variable is m — the number of queries sharing each inverted list per batch — which determines whether GEMM pays off over GEMV.
 
 ## Setup
 
@@ -28,13 +28,22 @@ Download datasets:
 
 - Metrics: throughput (QPS), average/P95/P99 latency, Recall@10
 - All three schedulers must achieve the same Recall@10 before comparing throughput
-- Two workloads: **random queries** (worst case for cluster-based) and **clustered queries** (best case)
+- Two workloads: **random queries** (small m, Batch(MM) disadvantaged) and **clustered queries** (large m, Batch(MM) advantaged)
 
 ## Timeline
 
 - Phase 1 (→ Apr 14): Core engine + data loading + single-query validation ✓
-- Phase 2 (Apr 14 → May 3): Implement all 3 schedulers, run experiments
+- Phase 2 (Apr 14 → May 3): Refine schedulers and scan modes, run experiments
 - Phase 3 (May 3 → May 7): Report + video
+
+## Report HTML Style
+
+`documentation/midterm_report.html` uses these style preferences:
+- `hr` — `display: none` (no horizontal rules rendered)
+- inline code — green (`#3a8a3a`), not the default yellow
+- `h2` — `margin-top: 2em` for section spacing
+
+When regenerating the HTML from Markdown, reapply these overrides in the CSS block.
 
 ## Reference Files
 

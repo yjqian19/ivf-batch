@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>midterm_report.md</title>
+<meta http-equiv="Content-type" content="text/html;charset=UTF-8">
+
+<style>
+/* https://github.com/microsoft/vscode/blob/master/extensions/markdown-language-features/media/markdown.css */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+body {
+	font-family: var(--vscode-markdown-font-family, -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif);
+	font-size: var(--vscode-markdown-font-size, 14px);
+	padding: 0 26px;
+	line-height: var(--vscode-markdown-line-height, 22px);
+	word-wrap: break-word;
+}
+
+#code-csp-warning {
+	position: fixed;
+	top: 0;
+	right: 0;
+	color: white;
+	margin: 16px;
+	text-align: center;
+	font-size: 12px;
+	font-family: sans-serif;
+	background-color:#444444;
+	cursor: pointer;
+	padding: 6px;
+	box-shadow: 1px 1px 1px rgba(0,0,0,.25);
+}
+
+#code-csp-warning:hover {
+	text-decoration: none;
+	background-color:#007acc;
+	box-shadow: 2px 2px 2px rgba(0,0,0,.25);
+}
+
+body.scrollBeyondLastLine {
+	margin-bottom: calc(100vh - 22px);
+}
+
+body.showEditorSelection .code-line {
+	position: relative;
+}
+
+body.showEditorSelection .code-active-line:before,
+body.showEditorSelection .code-line:hover:before {
+	content: "";
+	display: block;
+	position: absolute;
+	top: 0;
+	left: -12px;
+	height: 100%;
+}
+
+body.showEditorSelection li.code-active-line:before,
+body.showEditorSelection li.code-line:hover:before {
+	left: -30px;
+}
+
+.vscode-light.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.15);
+}
+
+.vscode-light.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(0, 0, 0, 0.40);
+}
+
+.vscode-light.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-dark.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.4);
+}
+
+.vscode-dark.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 255, 255, 0.60);
+}
+
+.vscode-dark.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+.vscode-high-contrast.showEditorSelection .code-active-line:before {
+	border-left: 3px solid rgba(255, 160, 0, 0.7);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line:hover:before {
+	border-left: 3px solid rgba(255, 160, 0, 1);
+}
+
+.vscode-high-contrast.showEditorSelection .code-line .code-line:hover:before {
+	border-left: none;
+}
+
+img {
+	max-width: 100%;
+	max-height: 100%;
+}
+
+a {
+	text-decoration: none;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
+a:focus,
+input:focus,
+select:focus,
+textarea:focus {
+	outline: 1px solid -webkit-focus-ring-color;
+	outline-offset: -1px;
+}
+
+hr {
+	display: none;
+}
+
+h1 {
+	padding-bottom: 0.3em;
+	line-height: 1.2;
+	border-bottom-width: 1px;
+	border-bottom-style: solid;
+}
+
+h1, h2, h3 {
+	font-weight: normal;
+}
+
+h2 {
+	margin-top: 2em;
+}
+
+table {
+	border-collapse: collapse;
+}
+
+table > thead > tr > th {
+	text-align: left;
+	border-bottom: 1px solid;
+}
+
+table > thead > tr > th,
+table > thead > tr > td,
+table > tbody > tr > th,
+table > tbody > tr > td {
+	padding: 5px 10px;
+}
+
+table > tbody > tr + tr > td {
+	border-top: 1px solid;
+}
+
+blockquote {
+	margin: 0 7px 0 5px;
+	padding: 0 16px 0 10px;
+	border-left-width: 5px;
+	border-left-style: solid;
+}
+
+code {
+	font-family: Menlo, Monaco, Consolas, "Droid Sans Mono", "Courier New", monospace, "Droid Sans Fallback";
+	font-size: 1em;
+	line-height: 1.357em;
+}
+
+body.wordWrap pre {
+	white-space: pre-wrap;
+}
+
+pre:not(.hljs),
+pre.hljs code > div {
+	padding: 16px;
+	border-radius: 3px;
+	overflow: auto;
+}
+
+pre code {
+	color: var(--vscode-editor-foreground);
+	tab-size: 4;
+}
+
+/** Theming */
+
+.vscode-light pre {
+	background-color: rgba(220, 220, 220, 0.4);
+}
+
+.vscode-dark pre {
+	background-color: rgba(10, 10, 10, 0.4);
+}
+
+.vscode-high-contrast pre {
+	background-color: rgb(0, 0, 0);
+}
+
+.vscode-high-contrast h1 {
+	border-color: rgb(0, 0, 0);
+}
+
+.vscode-light table > thead > tr > th {
+	border-color: rgba(0, 0, 0, 0.69);
+}
+
+.vscode-dark table > thead > tr > th {
+	border-color: rgba(255, 255, 255, 0.69);
+}
+
+.vscode-light h1,
+.vscode-light hr,
+.vscode-light table > tbody > tr + tr > td {
+	border-color: rgba(0, 0, 0, 0.18);
+}
+
+.vscode-dark h1,
+.vscode-dark hr,
+.vscode-dark table > tbody > tr + tr > td {
+	border-color: rgba(255, 255, 255, 0.18);
+}
+
+</style>
+
+<style>
+/* Tomorrow Theme */
+/* http://jmblog.github.com/color-themes-for-google-code-highlightjs */
+/* Original theme - https://github.com/chriskempson/tomorrow-theme */
+
+/* Tomorrow Comment */
+.hljs-comment,
+.hljs-quote {
+	color: #8e908c;
+}
+
+/* Tomorrow Red */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-regexp,
+.hljs-deletion {
+	color: #c82829;
+}
+
+/* Tomorrow Orange */
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-literal,
+.hljs-type,
+.hljs-params,
+.hljs-meta,
+.hljs-link {
+	color: #f5871f;
+}
+
+/* Tomorrow Yellow */
+.hljs-attribute {
+	color: #eab700;
+}
+
+/* Tomorrow Green */
+.hljs-string,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-addition {
+	color: #718c00;
+}
+
+/* Tomorrow Blue */
+.hljs-title,
+.hljs-section {
+	color: #4271ae;
+}
+
+/* Tomorrow Purple */
+.hljs-keyword,
+.hljs-selector-tag {
+	color: #8959a8;
+}
+
+.hljs {
+	display: block;
+	overflow-x: auto;
+	color: #4d4d4c;
+	padding: 0.5em;
+}
+
+.hljs-emphasis {
+	font-style: italic;
+}
+
+.hljs-strong {
+	font-weight: bold;
+}
+</style>
+
+<style>
+/*
+ * Markdown PDF CSS
+ */
+
+ body {
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", "Ubuntu", "Droid Sans", sans-serif, "Meiryo";
+	padding: 0 12px;
+}
+
+pre {
+	background-color: #f8f8f8;
+	border: 1px solid #cccccc;
+	border-radius: 3px;
+	overflow-x: auto;
+	white-space: pre-wrap;
+	overflow-wrap: break-word;
+}
+
+pre:not(.hljs) {
+	padding: 23px;
+	line-height: 19px;
+}
+
+blockquote {
+	background: rgba(127, 127, 127, 0.1);
+	border-color: rgba(0, 122, 204, 0.5);
+}
+
+.emoji {
+	height: 1.4em;
+}
+
+code {
+	font-size: 14px;
+	line-height: 19px;
+}
+
+/* for inline code */
+:not(pre):not(.hljs) > code {
+	color: #3a8a3a;
+	font-size: inherit;
+}
+
+/* Page Break : use <div class="page"/> to insert page break
+-------------------------------------------------------- */
+.page {
+	page-break-after: always;
+}
+
+</style>
+
+<script src="https://unpkg.com/mermaid/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast')
+          ? 'dark'
+          : 'default'
+    });
+  </script>
+<h1 id="mid-term-report-query-scheduling-optimization-in-ivf-based-vector-search">Mid-Term Report: Query Scheduling Optimization in IVF-based Vector Search</h1>
+<p>Yujia Qian — yjqian19@mit.edu<br>
+Xiangyu Guan — xiang949@mit.edu</p>
+<hr>
+<h2 id="1-project-status">1. Project Status</h2>
+<table>
+<thead>
+<tr>
+<th>Tasks</th>
+<th>Complete</th>
+<th>Pending</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Core engine</td>
+<td>custom IVF engine, MV + MM scan modes</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Schedulers</td>
+<td>Sequential, Batch(MV), Batch(MM)</td>
+<td>optimization</td>
+</tr>
+<tr>
+<td>Evaluation</td>
+<td>parameter sweep, random vs. clustered comparison</td>
+<td>clustered query construction, multi-run, sweep under clustered workload</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Deliverables</th>
+<th>Complete</th>
+<th>Pending</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A working system</td>
+<td>all</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Measured performance differences</td>
+<td>First-round results on SIFT1M</td>
+<td>Mentioned above in the evaluation part</td>
+</tr>
+<tr>
+<td>Final report and video</td>
+<td>—</td>
+<td>all</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="2-system-overview">2. System Overview</h2>
+<h3 id="engine">Engine</h3>
+<p>Our engine follows the IVF design from Faiss: base vectors are partitioned into 256 clusters via k-means, each cluster maintaining an inverted list. We use Faiss for centroid training but replace <code>index.search()</code> with a custom single-threaded implementation. Faiss's search is a stateless black box that processes each query independently, making cross-query optimizations invisible. Our engine exposes centroid lookup and list scanning as separate interfaces, giving the scheduler direct control over execution.</p>
+<h3 id="search-methods">Search Methods</h3>
+<ul>
+<li><strong><code>search_one</code></strong> — single-query path: centroid lookup → scan 8 lists → top-k. Used by Sequential.</li>
+<li><strong><code>search_batch_per_list</code></strong> — batch path with a list-major scan: iterates over inverted lists; for each list, computes distances for all queries that probe it before moving to the next. Each list is loaded from memory exactly once. Used by both batching schedulers, with two inner implementations:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>Distance computation per list</th>
+<th>When efficient</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Batch(MV)</strong></td>
+<td>loop over queries, each a matrix × vector (<code>vecs @ q</code>)</td>
+<td>small m, random queries</td>
+</tr>
+<tr>
+<td><strong>Batch(MM)</strong></td>
+<td>one matrix × matrix (<code>vecs @ Q.T</code>) for all m queries at once</td>
+<td>large m, clustered queries</td>
+</tr>
+</tbody>
+</table>
+<p>Batch(MM) amortizes memory bandwidth across all <code>m</code> queries sharing a list, but adds overhead when <code>m</code> is small.</p>
+<h3 id="schedulers">Schedulers</h3>
+<p>The experiment compares three configurations:</p>
+<ul>
+<li><strong>Sequential</strong> — <code>search_one</code>, one query at a time, no batching</li>
+<li><strong>Batch(MV)</strong> — time-window batching + MV scan</li>
+<li><strong>Batch(MM)</strong> — time-window batching + MM scan</li>
+</ul>
+<p>Time-window batching uses a dual-trigger flush: whichever fires first between time limit Δt and maximum batch size MaxBS.</p>
+<hr>
+<h2 id="3-experiment-setup">3. Experiment Setup</h2>
+<ul>
+<li>
+<p><strong>Dataset:</strong> SIFT1M (1M × 128-d, L2 distance)</p>
+</li>
+<li>
+<p><strong>Device:</strong> MacBook Pro, Apple M3 Pro, 18 GB RAM</p>
+</li>
+<li>
+<p><strong>Search parameters:</strong> n_clusters=256, nprobe=8, k=10</p>
+</li>
+<li>
+<p><strong>Scheduler parameters:</strong> Δt=5ms, MaxBS=128 fixed for comparison; separately swept as Δt ∈ {0.5, 1, 2, 5, 10, 20, 50} ms × MaxBS ∈ {32, 64, 128, 256} under random queries (full results recorded in a separate report)</p>
+</li>
+<li>
+<p><strong>Queries:</strong> 10K queries from SIFT1M, arrival rate 2000 QPS (Poisson), tested under two workloads:</p>
+<ul>
+<li><em>Random</em> — queries sampled uniformly, probing largely disjoint inverted lists</li>
+<li><em>Clustered</em> — queries drawn from 10 spatial regions, with high centroid overlap across queries</li>
+</ul>
+<p>We test both because the number of queries sharing each inverted list (m) depends on workload structure — random is the worst case for batching, clustered is the best case.</p>
+</li>
+</ul>
+<h2 id="4-results">4. Results</h2>
+<h3 id="random-queries">Random Queries</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Sequential</th>
+<th>Batch(MV)</th>
+<th>Batch(MM)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recall@10</td>
+<td>0.956</td>
+<td>0.956</td>
+<td>0.956</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>1793</td>
+<td><strong>2212</strong></td>
+<td>1721</td>
+</tr>
+<tr>
+<td>Avg Latency (ms)</td>
+<td><strong>0.6</strong></td>
+<td>72.1</td>
+<td>109.8</td>
+</tr>
+<tr>
+<td>P95 Latency (ms)</td>
+<td><strong>0.8</strong></td>
+<td>103.4</td>
+<td>135.7</td>
+</tr>
+</tbody>
+</table>
+<p>Batch(MV) achieves the highest throughput (+23% over Sequential), at the cost of ×129 higher average latency due to queuing. Batch(MM) underperforms Sequential (−4% QPS) — on random queries, each list is shared by only ~4 queries on average, so GEMM adds matrix construction overhead without arithmetic intensity benefit, pushing average latency to ×197 over Sequential.</p>
+<h3 id="clustered-queries">Clustered Queries</h3>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Sequential</th>
+<th>Batch(MV)</th>
+<th>Batch(MM)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recall@10</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>QPS</td>
+<td>1896</td>
+<td>2300</td>
+<td><strong>2571</strong></td>
+</tr>
+<tr>
+<td>Avg Latency (ms)</td>
+<td><strong>0.5</strong></td>
+<td>58.8</td>
+<td>33.3</td>
+</tr>
+<tr>
+<td>P95 Latency (ms)</td>
+<td><strong>0.7</strong></td>
+<td>104.1</td>
+<td>63.4</td>
+</tr>
+</tbody>
+</table>
+<p>Recall is not reported: clustered queries are sampled from base vectors, making self-retrieval recall undefined. With clustered queries, many queries share the same lists (large m), and Batch(MM) achieves the best throughput (+36% over Sequential). Notably, Batch(MM) also has lower latency than Batch(MV) — ×63 vs ×112 over Sequential — because GEMM's higher arithmetic intensity reduces scan time enough to more than offset queuing delay.</p>
+<h3 id="mv-vs-mm-the-role-of-m">MV vs. MM: the role of m</h3>
+<p>The key variable is m — the number of queries sharing each inverted list per batch. On random queries, m is small and GEMM overhead dominates. On clustered queries, m is large and GEMM's O(m) arithmetic intensity pays off. This suggests an adaptive strategy: use MM only when m exceeds a threshold.</p>
+<hr>
+<h2 id="5-potential-problems">5. Potential Problems</h2>
+<ol>
+<li>
+<p><strong>Clustered query workload construction is incomplete.</strong>
+The current clustered queries are sampled directly from base vectors, so each query exists in the index and self-retrieval makes recall undefined. A more realistic construction — queries near but distinct from base vectors — remains to be built.</p>
+</li>
+<li>
+<p><strong>Batch(MM) underperforms on random queries.</strong>
+When m is small, GEMM overhead hurts rather than helps. An adaptive scan mode that switches between MV and MM based on observed m per batch would eliminate this regression.</p>
+</li>
+<li>
+<p><strong>Results are based on a single run.</strong>
+All numbers come from one run. Multi-run experiments (mean ± std) would improve statistical credibility.</p>
+</li>
+<li>
+<p><strong>Parameter sweep was only conducted under random queries.</strong>
+Running the same Δt × MaxBS sweep under clustered conditions may reveal different optimal parameters and a different MV vs. MM crossover point.</p>
+</li>
+<li>
+<p><strong>Additional metrics could strengthen the argument.</strong>
+Cache miss rate (<code>perf stat</code>) would directly validate the per-list reuse effect. Latency decomposition (queue delay vs. scan time) would show whether throughput gains come from better compute utilization or simply larger batches.</p>
+</li>
+<li>
+<p><strong>Results are limited to a single-threaded setting.</strong>
+The engine is single-threaded by design to isolate scheduling effects. On a multi-core CPU, queries can be parallelized across cores, which would reduce the relative benefit of batching. Whether the gains observed here survive in a multi-threaded setting remains to be evaluated.</p>
+</li>
+</ol>
+<hr>
+<h2 id="6-updated-timeline">6. Updated Timeline</h2>
+<p>The project is on schedule. Phase 1 work (Mar 27 → Apr 14) is complete as planned.</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Dates</th>
+<th>Tasks</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Phase 1</td>
+<td>Mar 27 → Apr 14 ✓</td>
+<td>Core engine, schedulers, dataset, first round evaluation</td>
+</tr>
+<tr>
+<td>Phase 2</td>
+<td>Apr 14 → May 3</td>
+<td>Optimize scheduling strategy, refine evaluation setup</td>
+</tr>
+<tr>
+<td>Phase 3</td>
+<td>May 3 → May 7</td>
+<td>Compose report and prepare video</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="7-division-of-work">7. Division of Work</h2>
+<table>
+<thead>
+<tr>
+<th>Member</th>
+<th>So Far</th>
+<th>Next</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Xiangyu</td>
+<td>schedulers, core engine improvement, evaluation</td>
+<td>scheduler improvement, evaluation</td>
+</tr>
+<tr>
+<td>Yujia</td>
+<td>core engine base, evaluation, report</td>
+<td>evaluation, report</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="8-questions">8. Questions</h2>
+
+</body>
+</html>
