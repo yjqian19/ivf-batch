@@ -60,7 +60,7 @@ class CustomIVFIndex:
 
     # ── Per-list batch search (core innovation) ──────────────────────────────
 
-    def search_batch_per_list(self, queries, centroid_ids, k, mode="mv"):
+    def search_batch_per_list(self, queries, centroid_ids, k, mode="mv", _stats=None):
         """Scan each inverted list once for all queries that need it.
 
         Parameters
@@ -70,6 +70,9 @@ class CustomIVFIndex:
         k            : int
         mode         : "mv" — per-query GEMV loop (matrix × vector)
                        "mm" — per-list GEMM (matrix × matrix), better for large m
+        _stats       : optional dict; if provided, updated with:
+                         "list_loads" — number of non-empty lists scanned
+                         "m_values"   — list of per-list query-sharing counts
 
         Returns
         -------
@@ -88,12 +91,18 @@ class CustomIVFIndex:
         cand_i = [[] for _ in range(n)]
         q_norms = np.sum(queries ** 2, axis=1)  # (n,)
 
+        list_loads = 0
+        m_values = []
+
         for list_id, q_indices in list_to_queries.items():
             vecs = self.inverted_lists[list_id]       # (n_c, d) — loaded ONCE
             if len(vecs) == 0:
                 continue
             v_ids = self.vector_ids[list_id]           # (n_c,)
             v_norms = self.list_norms[list_id]         # (n_c,)
+
+            list_loads += 1
+            m_values.append(len(q_indices))
 
             if mode == "mm":
                 # GEMM: one matrix multiply for all m queries sharing this list
@@ -109,6 +118,10 @@ class CustomIVFIndex:
                     d = q_norms[q_idx] + v_norms - 2.0 * (vecs @ queries[q_idx])
                     cand_d[q_idx].append(d)
                     cand_i[q_idx].append(v_ids)
+
+        if _stats is not None:
+            _stats["list_loads"] = list_loads
+            _stats["m_values"] = m_values
 
         # Extract top-k per query
         out_d = np.empty((n, k), dtype=np.float32)

@@ -144,7 +144,29 @@ Total estimated effort: primary ≈ 3 hr, secondary ≈ 2 hr.
 
 ---
 
-## 6. What to change in the midterm report
+## 6. Implementation status and findings (2026-05-05)
+
+### What was implemented
+
+- **Primary (in scheduler):** A1 (latency decomposition), A2 (lists loaded per query), A3 (m distribution) added to `run_experiments.py` via `collect_stats=True`; A6 (P99) was already present.
+- **Secondary:** `microbench_a4.py` — standalone script, results auto-saved to `results/microbench_a4_<timestamp>.txt`.
+- **Files changed:** `engine/custom_index.py` (`_stats` param), `engine/schedulers.py` (`collect_stats` param on both schedulers), `run_experiments.py` (workload comparison section).
+
+### Key findings from first run (experiment_20260505_151337.txt)
+
+- **A2** validates perfectly: lists/query ≈ nprobe / m_mean in all cases. Clustered achieves 0.7 lists/query vs 8.0 for Sequential — 11.4× reduction.
+- **A3** connects to A4 crossover (m = 8 on M3): random m_P50 = 3–4 (below 8 → MM loses), clustered m_P95 = 32–42 (far above 8 → MM wins).
+- **A1** on clustered: MM has lower queue delay *and* lower scan time vs MV. Both effects compound.
+
+### Watch out for
+
+1. **A1 "Scan (ms)" is per-batch, not per-query.** Each query's latency contribution equals the full batch scan time. Add a note in the report; do not divide by avg_bs when reporting latency.
+2. **Batch(MM) random P99 = 1077ms** (vs P95 = 142ms) — anomalous 7.5× spike, likely a runaway batch or GC pause. Single-run results are unreliable; run 3–5 times and report mean ± std before finalizing.
+3. **lists/query can be < 1 for clustered batch** — correct, not a bug. It means multiple queries share each loaded list; the metric counts unique loads divided by total queries.
+
+---
+
+## 7. What to change in the midterm report
 
 In §5.5 (potential problems), replace:
 

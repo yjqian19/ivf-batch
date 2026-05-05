@@ -131,17 +131,18 @@ def main():
                            ("Clustered (10 regions)", clustered)]:
         print(f"\n  Workload: {wl_name}")
 
-        _, _, s1 = run_sequential(index, wl_q, k=K, nprobe=NPROBE)
+        _, _, s1 = run_sequential(index, wl_q, k=K, nprobe=NPROBE, collect_stats=True)
         t1 = s1["query_times"]
         print(f"    Sequential: {s1['qps']:>8.0f} QPS  wall={s1['wall_time']:.3f}s  "
               f"avg_lat={np.mean(t1)*1000:.3f}ms  "
               f"p95_lat={np.percentile(t1, 95)*1000:.3f}ms  "
               f"p99_lat={np.percentile(t1, 99)*1000:.3f}ms")
 
+        batch_results = {}
         for label, mode in [("Batch(MV)", "mv"), ("Batch(MM)", "mm")]:
             _, _, s = run_batch(
                 index, wl_q, arr, delta_t_ms=5, max_batch_size=128,
-                k=K, nprobe=NPROBE, scan_mode=mode,
+                k=K, nprobe=NPROBE, scan_mode=mode, collect_stats=True,
             )
             lat = s["latencies"]
             print(f"    {label}:   {s['qps']:>8.0f} QPS  wall={s['wall_time']:.3f}s  "
@@ -150,6 +151,31 @@ def main():
                   f"p99_lat={np.percentile(lat, 99)*1000:.3f}ms  "
                   f"avg_qd={np.mean(s['queue_delays'])*1000:.3f}ms  "
                   f"avg_bs={np.mean(s['batch_sizes']):.1f}")
+            batch_results[label] = s
+
+        # ── A1: Latency decomposition ─────────────────────────────────────
+        print(f"\n    A1 — Latency decomposition (avg per query):")
+        print(f"    {'Scheduler':<14} {'Queue (ms)':>11} {'Scan (ms)':>10} {'Total (ms)':>11}")
+        print(f"    {'-'*48}")
+        q_delay = np.mean(s1['queue_delays']) * 1000
+        scan    = np.mean(s1['scan_times']) * 1000
+        print(f"    {'Sequential':<14} {q_delay:>10.2f}  {scan:>9.2f}  {q_delay+scan:>10.2f}")
+        for label, s in batch_results.items():
+            q_delay = np.mean(s['queue_delays']) * 1000
+            scan    = np.mean(s['scan_times']) * 1000
+            print(f"    {label:<14} {q_delay:>10.2f}  {scan:>9.2f}  {q_delay+scan:>10.2f}")
+
+        # ── A2 + A3: Per-list reuse and m distribution ────────────────────
+        print(f"\n    A2+A3 — Per-list reuse and m distribution:")
+        print(f"    {'Scheduler':<14} {'Lists/query':>12} {'m_mean':>7} {'m_P50':>6} {'m_P95':>6}")
+        print(f"    {'-'*48}")
+        mv = s1["m_values"]
+        print(f"    {'Sequential':<14} {s1['list_loads_per_query']:>12.1f} "
+              f"{np.mean(mv):>7.1f} {np.percentile(mv,50):>6.0f} {np.percentile(mv,95):>6.0f}")
+        for label, s in batch_results.items():
+            mv = s["m_values"]
+            print(f"    {label:<14} {s['list_loads_per_query']:>12.1f} "
+                  f"{np.mean(mv):>7.1f} {np.percentile(mv,50):>6.0f} {np.percentile(mv,95):>6.0f}")
 
     print()
 
