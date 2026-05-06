@@ -1,0 +1,19 @@
+A4 — Scan throughput vs m
+List: n=4000 vectors, d=128 dims  |  Repeats: 50
+Metric: ns / (query × vector)  — lower is better
+
+    m    MV (ns/q·v)    MM (ns/q·v)   MM/MV speedup
+───────────────────────────────────────────────────
+    1          5.516          5.573           0.99x ← MV wins
+    2          5.307         13.042           0.41x ← MV wins
+    4          5.249          7.592           0.69x ← MV wins
+    8          5.257          4.333           1.21x ← MM wins
+   16          5.210          2.722           1.91x ← MM wins
+   32          5.186          1.547           3.35x ← MM wins
+   64          5.176          1.423           3.64x ← MM wins
+  128          5.157          1.409           3.66x ← MM wins
+  256          5.166          1.441           3.58x ← MM wins
+
+Crossover: MM starts beating MV at m = 8
+
+Theoretical AI: GEMV = 0.5 FLOP/byte (constant);  GEMM = m/2 FLOP/byte (linear in m)
