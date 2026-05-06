@@ -65,7 +65,8 @@ def fmt_lat(times_sec):
 def print_sweep_header():
     header = (f"  {'Δt_ms':>6} {'MaxBS':>6} {'AvgBS':>6} "
               f"{'QPS':>8} {'Recall':>7} "
-              f"{'AvgLat':>10} {'P95Lat':>10} {'AvgQD':>10}")
+              f"{'AvgLat':>10} {'P95Lat':>10} {'AvgQD':>10} "
+              f"{'L_mean':>7} {'L_P50':>6} {'L_P95':>6}")
     print(header)
     print("  " + "-" * (len(header) - 2))
 
@@ -77,15 +78,18 @@ def run_sweep(index, queries, gt, arrivals, scan_mode):
             ids, _, s = run_batch(
                 index, queries, arrivals, dt, mbs,
                 k=K, nprobe=NPROBE, scan_mode=scan_mode,
+                collect_stats=True,
             )
             r = recall_at_k(ids, gt, k=K)
             lat = s["latencies"]
             qd  = s["queue_delays"]
+            mv  = s["m_values"]
             print(f"  {dt:>6.1f} {mbs:>6} {np.mean(s['batch_sizes']):>6.1f} "
                   f"{s['qps']:>8.0f} {r:>7.3f} "
                   f"{np.mean(lat)*1000:>9.3f}ms "
                   f"{np.percentile(lat, 95)*1000:>9.3f}ms "
-                  f"{np.mean(qd)*1000:>9.3f}ms")
+                  f"{np.mean(qd)*1000:>9.3f}ms "
+                  f"{np.mean(mv):>7.1f} {np.percentile(mv, 50):>6.0f} {np.percentile(mv, 95):>6.0f}")
 
 
 def main():
