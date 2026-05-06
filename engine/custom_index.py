@@ -154,7 +154,7 @@ def build_custom_index(base_vectors, n_clusters=256):
     d = base_vectors.shape[1]
     n = len(base_vectors)
 
-    kmeans = faiss.Kmeans(d, n_clusters, niter=20, verbose=True)
+    kmeans = faiss.Kmeans(d, n_clusters, niter=20, verbose=True, seed=0)
     kmeans.train(base_vectors)
     centroids = kmeans.centroids.copy()
 

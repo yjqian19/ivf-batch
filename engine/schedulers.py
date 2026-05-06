@@ -194,6 +194,9 @@ def select_clustered_queries(index, real_queries, gt=None, n_centers=10,
     idx = np.where(mask)[0]
     if target_n is not None and len(idx) > target_n:
         idx = np.sort(rng.choice(idx, target_n, replace=False))
+    # Sort by primary centroid: consecutive same-cluster queries so that
+    # np.tile produces repeated cluster bursts, maximising per-list m.
+    idx = idx[np.argsort(primary[idx], kind="stable")]
     return (
         real_queries[idx].astype(np.float32),
         gt[idx] if gt is not None else None,

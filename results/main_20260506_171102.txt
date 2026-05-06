@@ -1,0 +1,271 @@
+======================================================================
+  Main Experiment  —  Δt=5.0ms  MaxBS=128  runs=5
+======================================================================
+
+Loading data …
+  base=(1000000, 128)  queries=(10000, 128)  gt=(10000, 100)
+
+Building index (n_clusters=256, seed=0) …
+  done in 1.15s
+
+  Clustered workload: 791 unique queries tiled to 10000 arrivals, 10 centroids
+  per-centroid counts: [103, 99, 79, 76, 76, 74, 73, 73, 69, 69]
+
+──────────────────────────────────────────────────────────────────────
+  Run 1 / 5
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (10000 queries)
+    Sequential      1804 QPS  recall=0.957  avg=0.55ms  p95=0.76ms  p99=1.02ms
+    Batch(MV)       2207 QPS  recall=0.957  avg=73.85ms  p95=105.83ms  p99=114.55ms  avg_bs=99.0
+    Batch(MM)       1942 QPS  recall=0.957  avg=93.93ms  p95=131.29ms  p99=140.97ms  avg_bs=119.0
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.54       0.54
+    Batch(MV)         26.05      47.35      73.40
+    Batch(MM)         30.53      62.90      93.43
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        2.23     3.6      3      8
+    Batch(MM)        1.94     4.1      4      9
+
+  Workload: Clustered (791 queries, 10 centroids)
+    Sequential      1625 QPS  recall=0.981  avg=0.61ms  p95=0.79ms  p99=0.89ms
+    Batch(MV)       1987 QPS  recall=0.981  avg=94.01ms  p95=125.65ms  p99=139.06ms  avg_bs=120.5
+    Batch(MM)       2518 QPS  recall=0.981  avg=33.37ms  p95=50.07ms  p99=58.39ms  avg_bs=50.0
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.60       0.60
+    Batch(MV)         31.37      62.18      93.55
+    Batch(MM)         12.69      20.47      33.16
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        0.55    14.5      5     64
+    Batch(MM)        0.81     9.8      4     39
+
+──────────────────────────────────────────────────────────────────────
+  Run 2 / 5
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (10000 queries)
+    Sequential      1868 QPS  recall=0.957  avg=0.53ms  p95=0.73ms  p99=0.81ms
+    Batch(MV)       2188 QPS  recall=0.957  avg=75.99ms  p95=107.84ms  p99=115.66ms  avg_bs=103.1
+    Batch(MM)       1800 QPS  recall=0.957  avg=105.45ms  p95=135.13ms  p99=182.22ms  avg_bs=123.5
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.52       0.52
+    Batch(MV)         26.58      48.98      75.56
+    Batch(MM)         35.49      69.45     104.94
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        2.19     3.7      3      8
+    Batch(MM)        1.89     4.2      4     10
+
+  Workload: Clustered (791 queries, 10 centroids)
+    Sequential      1710 QPS  recall=0.981  avg=0.58ms  p95=0.74ms  p99=0.80ms
+    Batch(MV)       1935 QPS  recall=0.981  avg=96.21ms  p95=126.85ms  p99=134.28ms  avg_bs=120.5
+    Batch(MM)       2208 QPS  recall=0.981  avg=70.99ms  p95=110.99ms  p99=120.24ms  avg_bs=93.5
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.57       0.57
+    Batch(MV)         31.77      63.97      95.74
+    Batch(MM)         25.06      45.52      70.58
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        0.55    14.6      5     64
+    Batch(MM)        0.60    13.4      5     57
+
+──────────────────────────────────────────────────────────────────────
+  Run 3 / 5
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (10000 queries)
+    Sequential      1778 QPS  recall=0.957  avg=0.56ms  p95=0.76ms  p99=0.89ms
+    Batch(MV)       2164 QPS  recall=0.957  avg=80.68ms  p95=113.90ms  p99=121.06ms  avg_bs=107.5
+    Batch(MM)       1739 QPS  recall=0.957  avg=111.41ms  p95=135.90ms  p99=844.53ms  avg_bs=122.0
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.54       0.54
+    Batch(MV)         28.16      52.04      80.20
+    Batch(MM)         39.16      71.73     110.89
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        2.10     3.8      3      9
+    Batch(MM)        1.90     4.2      4     10
+
+  Workload: Clustered (791 queries, 10 centroids)
+    Sequential      1615 QPS  recall=0.981  avg=0.62ms  p95=0.79ms  p99=0.90ms
+    Batch(MV)       1868 QPS  recall=0.981  avg=97.69ms  p95=129.46ms  p99=174.29ms  avg_bs=119.0
+    Batch(MM)       2250 QPS  recall=0.981  avg=65.26ms  p95=97.44ms  p99=106.98ms  avg_bs=90.1
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.60       0.60
+    Batch(MV)         31.02      66.16      97.18
+    Batch(MM)         23.35      41.55      64.89
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        0.54    14.7      6     64
+    Batch(MM)        0.60    13.3      5     57
+
+──────────────────────────────────────────────────────────────────────
+  Run 4 / 5
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (10000 queries)
+    Sequential      1942 QPS  recall=0.957  avg=0.51ms  p95=0.70ms  p99=0.77ms
+    Batch(MV)       2227 QPS  recall=0.957  avg=69.41ms  p95=101.34ms  p99=110.83ms  avg_bs=94.3
+    Batch(MM)       1792 QPS  recall=0.957  avg=98.58ms  p95=132.90ms  p99=139.64ms  avg_bs=114.9
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.50       0.50
+    Batch(MV)         24.54      44.45      68.99
+    Batch(MM)         30.74      67.33      98.07
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        2.34     3.4      3      8
+    Batch(MM)        1.99     4.0      3      9
+
+  Workload: Clustered (791 queries, 10 centroids)
+    Sequential      1653 QPS  recall=0.981  avg=0.60ms  p95=0.76ms  p99=0.82ms
+    Batch(MV)       1950 QPS  recall=0.981  avg=96.19ms  p95=127.06ms  p99=143.23ms  avg_bs=120.5
+    Batch(MM)       2287 QPS  recall=0.981  avg=57.49ms  p95=83.18ms  p99=95.20ms  avg_bs=80.6
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.59       0.59
+    Batch(MV)         32.36      63.37      95.73
+    Batch(MM)         20.71      36.46      57.17
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        0.55    14.6      5     64
+    Batch(MM)        0.64    12.4      5     52
+
+──────────────────────────────────────────────────────────────────────
+  Run 5 / 5
+──────────────────────────────────────────────────────────────────────
+
+  Workload: Random (10000 queries)
+    Sequential      1879 QPS  recall=0.957  avg=0.53ms  p95=0.73ms  p99=0.80ms
+    Batch(MV)       2220 QPS  recall=0.957  avg=71.75ms  p95=105.05ms  p99=114.67ms  avg_bs=96.2
+    Batch(MM)       1680 QPS  recall=0.957  avg=114.06ms  p95=137.75ms  p99=152.89ms  avg_bs=123.5
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.52       0.52
+    Batch(MV)         25.54      45.80      71.34
+    Batch(MM)         39.01      74.56     113.57
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        2.29     3.5      3      8
+    Batch(MM)        1.89     4.2      4     10
+
+  Workload: Clustered (791 queries, 10 centroids)
+    Sequential      1647 QPS  recall=0.981  avg=0.61ms  p95=0.79ms  p99=0.88ms
+    Batch(MV)       1925 QPS  recall=0.981  avg=96.85ms  p95=127.49ms  p99=136.81ms  avg_bs=120.5
+    Batch(MM)       2253 QPS  recall=0.981  avg=63.34ms  p95=94.09ms  p99=107.11ms  avg_bs=87.7
+
+    A1 — Latency decomposition:
+    Scheduler     Queue(ms)   Scan(ms)  Total(ms)
+    --------------------------------------------
+    Sequential         0.00       0.59       0.59
+    Batch(MV)         32.11      64.28      96.40
+    Batch(MM)         22.66      40.32      62.98
+
+    A2+A3 — Per-list reuse and m distribution:
+    Scheduler     Lists/q  m_mean  m_P50  m_P95
+    --------------------------------------------
+    Sequential       8.00     1.0      1      1
+    Batch(MV)        0.55    14.7      5     65
+    Batch(MM)        0.61    13.0      5     55
+
+──────────────────────────────────────────────────────────────────────
+  Summary — mean ± std across 5 runs
+──────────────────────────────────────────────────────────────────────
+
+  Parameters: Δt=5.0ms  MaxBS=128  (5 runs)
+
+  Random (10000 queries):
+  Scheduler       QPS (mean±std)       AvgLat (ms)       P95Lat (ms)    P99 median        Recall
+  ──────────────────────────────────────────────────────────────────────────────────────────
+  Sequential       1854 ± 58          0.54 ± 0.02       0.74 ± 0.02           0.81    0.956 ± 0.000
+  Batch(MV)        2202 ± 23         74.34 ± 3.85     106.79 ± 4.13         114.67    0.956 ± 0.000
+  Batch(MM)        1791 ± 87        104.69 ± 7.57     134.60 ± 2.27         152.89    0.956 ± 0.000
+
+  A1 — Latency decomposition (mean across 5 runs):
+  Scheduler      Queue(ms)    Scan(ms)   Total(ms)
+  ------------------------------------------------
+  Sequential          0.00        0.52        0.52
+  Batch(MV)          26.17       47.72       73.90
+  Batch(MM)          34.98       69.19      104.18
+
+  A2+A3 — Per-list reuse (mean across 5 runs):
+  Scheduler      Lists/q   m_mean   m_P50   m_P95
+  ------------------------------------------------
+  Sequential        8.00      1.0       1       1
+  Batch(MV)         2.23      3.6       3       8
+  Batch(MM)         1.92      4.2       4      10
+
+  Clustered (791 unique × tiled to 10000):
+  Scheduler       QPS (mean±std)       AvgLat (ms)       P95Lat (ms)    P99 median        Recall
+  ──────────────────────────────────────────────────────────────────────────────────────────
+  Sequential       1650 ± 33          0.61 ± 0.01       0.78 ± 0.02           0.88    0.981 ± 0.000
+  Batch(MV)        1933 ± 39         96.19 ± 1.22     127.30 ± 1.24         139.06    0.981 ± 0.000
+  Batch(MM)        2303 ± 111        58.09 ± 13.09     87.15 ± 20.56        106.98    0.981 ± 0.000
+
+  A1 — Latency decomposition (mean across 5 runs):
+  Scheduler      Queue(ms)    Scan(ms)   Total(ms)
+  ------------------------------------------------
+  Sequential          0.00        0.59        0.59
+  Batch(MV)          31.73       63.99       95.72
+  Batch(MM)          20.89       36.86       57.76
+
+  A2+A3 — Per-list reuse (mean across 5 runs):
+  Scheduler      Lists/q   m_mean   m_P50   m_P95
+  ------------------------------------------------
+  Sequential        8.00      1.0       1       1
+  Batch(MV)         0.55     14.6       5      64
+  Batch(MM)         0.65     12.4       5      52
+

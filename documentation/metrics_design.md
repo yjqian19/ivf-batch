@@ -166,6 +166,92 @@ Total estimated effort: primary ≈ 3 hr, secondary ≈ 2 hr.
 
 ---
 
+### Run 2 findings (experiment_20260506_152406.txt) — full sweep completed
+
+Run 2 completed the full sweep on both random and clustered workloads. The headline numbers are consistent with Run 1 on the random side, but the clustered workload diverges significantly.
+
+**What changed:**
+
+| | Run 1 (20260505) | Run 2 (20260506) |
+|---|---|---|
+| Clustered query count | ~10 000 (wall≈5.2s) | **784** (wall≈0.47s) |
+| Clustered m_P95 (MV) | 42 | 17 |
+| Clustered m_P95 (MM) | 32 | 20 |
+| MM vs MV at Δt=5ms/MaxBS=128 (clustered) | MM **+8%** | MM **−7%** (MV wins) |
+
+**Root cause — missing k-means seed.** `faiss.Kmeans` is initialised randomly. Run 1 happened to produce very skewed clusters: nearly all 10 000 queries landed in the top-10 centroids, yielding high m and a strong MM advantage. Run 2 produced balanced clusters; only 784 queries qualify, m is much lower, and MM's arithmetic-intensity advantage never fully activates at the tested parameters.
+
+**Consequences:**
+1. The 784-query timing (wall ≈ 0.47 s) is too short for reliable QPS measurement — noise is high.
+2. At Δt=5ms/MaxBS=128, MM loses to MV on clustered in Run 2. The MM > MV story only holds at Δt=50ms/MaxBS=256 (MM=2088, MV=1960 — a 6% margin).
+3. Even at those large parameters, random favours MM too (MM=2519 > MV=2342), so there is no clean "MV wins random, MM wins clustered" contrast at a single parameter setting.
+
+**Action required before running the main experiment:** fix the k-means seed (see §8).
+
+---
+
+## 8. Multi-run strategy
+
+The project has three distinct experiments. Each has a different noise profile and a different purpose, so the right run count differs for each.
+
+---
+
+### Experiment 1 — Parameter sweep
+
+**Purpose:** identify which (Δt, MaxBS) pair maximises QPS. This is a tuning step, not a final result.
+
+**Run count: 1 run.**
+
+The effect sizes in a sweep are large — QPS varies by 20–100% across the grid. Single-run noise (3–5% CV) is far too small to change which region wins. Running the sweep multiple times gives no additional insight; it only wastes time that should go to the main experiment.
+
+**Precondition: fix the k-means seed before running or re-running the sweep.** Add `seed=0` to `faiss.Kmeans(...)` in `custom_index.py`. Without it, the number of clustered queries and the m distribution change dramatically between runs (784 vs ~10 000 in the two sweeps already run), making the parameter choice meaningless.
+
+**Outcome:** once the seed is fixed, re-run the sweep once and pick the (Δt, MaxBS) pair that best shows the contrast the paper needs:
+- MV beats MM on random (m too small for GEMM to pay off)
+- MM beats MV on clustered (m large enough for GEMM AI to dominate)
+- Both beat Sequential
+
+From the two existing sweeps, **Δt=5ms / MaxBS=128** worked cleanly in Run 1 (strong clustering, m_P95=32–42). Whether it still works after fixing the seed depends on what clusters the fixed seed produces. Re-run the sweep once with the fixed seed, confirm the contrast holds, then lock in the parameter.
+
+---
+
+### Experiment 2 — Main experiment
+
+**Scope:** Sequential vs Batch(MV) vs Batch(MM), at the single (Δt, MaxBS) chosen from the sweep, on two workloads (random and clustered). This is the only experiment that goes in the headline results table.
+
+**Run count: 5 runs.**
+
+Reasoning:
+- The **Batch vs Sequential** gap (4–11× QPS) is so large it would be significant at even 2 runs. Still, 3+ is expected for any published result.
+- The **MM vs MV** gap on clustered is ~8–20% in QPS — a moderate effect. Timing CV on a 10 k-query workload is typically 3–5%. Five runs gives a standard error of ~1–2%, which sits comfortably below the effect size.
+- **P99 latency** is dominated by GC pauses (confirmed: 1077 ms spike in §6). Report the **median P99 across 5 runs**, not the mean. One unlucky GC hit should not inflate the reported number.
+
+| Metric | Aggregation across 5 runs |
+|---|---|
+| QPS | mean ± std |
+| Avg latency | mean ± std |
+| P95 latency | mean ± std |
+| P99 latency | **median** (GC-pause sensitive) |
+| Recall@10 | mean ± std |
+| m_mean, m_P95 | mean ± std |
+
+Practical notes:
+- **Fix the k-means seed first** — this is a hard prerequisite, not optional. Two runs with different seeds produced 784 vs ~10 000 clustered queries and opposite MM-vs-MV orderings. Add `seed=0` to `faiss.Kmeans(...)` in `custom_index.py`.
+- **Build the index once and reuse** across the 5 runs. Rebuilding it each time wastes time and risks a different seed being used if the code is modified.
+- Each main-experiment run (workload comparison only, no sweep) takes ~1–2 min. **5 runs ≈ 5–10 min total.**
+
+---
+
+### Experiment 3 — Microbenchmark (`microbench_a4.py`)
+
+**Purpose:** show the MV-vs-MM crossover as a function of m, isolated from scheduler noise.
+
+**Run count: 1 run.**
+
+The script already does **50 internal repetitions** per (m, kernel) point and reports the **median**. The crossover point is a structural property of the hardware (GEMV vs GEMM throughput on M3 AMX), not a timing artifact. Re-running the script will reproduce the same crossover m within ±1 step on the grid {1,2,4,8,…,256}. A second run adds nothing.
+
+---
+
 ## 7. What to change in the midterm report
 
 In §5.5 (potential problems), replace:
