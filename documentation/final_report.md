@@ -16,7 +16,7 @@ Vector search is central to a wide range of AI applications, including retrieval
 
 The dominant approach to improving vector search performance is to optimize the index structure. Hierarchical Navigable Small World graphs (HNSW), product quantization, and IVF variants have each offered significant gains in recall-efficiency trade-offs. By contrast, the query execution layer — how individual queries are dispatched and processed at runtime — has received comparatively less attention.
 
-This work takes the index as fixed and asks: **can throughput be improved by reorganizing how concurrent queries are executed?** 
+This work takes the index as fixed and asks: **can throughput be improved by reorganizing how concurrent queries are executed?**
 
 We focus on IVF (Inverted File Index), which partitions the vector space into clusters, each maintaining an inverted list of assigned vectors. To answer a query, the engine identifies the nearest centroids and scans the corresponding lists. Crucially, when multiple queries are processed together, many of them probe overlapping lists. If the engine exploits this overlap — loading each list once and computing distances for all queries that need it — the total number of memory loads decreases substantially.
 
@@ -191,11 +191,19 @@ As Δt and MaxBS grow, AvgBS and L both increase, and MM's disadvantage narrows 
 
 In contrast to the random workload, MM wins from small-to-medium batch sizes because clustered queries concentrate on overlapping lists, keeping L above the crossover even in small batches. At Δt = 0.5 ms and MaxBS = 32, L ≈ 7.5–7.6 sits right at the hardware crossover and MM barely loses (−5%). As batch size grows, L rises well above the crossover and MM's advantage increases steadily to +24%. Notably, at the main experiment parameters MM achieves AvgBS = 71 versus MV's 121 — faster execution drains the queue earlier — yet L remains at 11.9, well above the crossover. As with the random workload, MV latency grows with batch size (23 ms to 192 ms), reflecting the same throughput–latency trade-off.
 
+Figure 1 summarises the sweep results across both workloads. The two trajectories — random rising from −38% and clustered starting near zero — illustrate how workload structure determines the operating regime of each scan mode across the full range of batch sizes.
+
+![Figure 1. Batch size sweep: relative QPS of MM vs MV across random and clustered workloads. Highlighted points correspond to the selected rows in Tables 4 and 5; faint dots show all 28 configurations.](../figures/fig_sweep.png)
+
+Figure 2 shows the latency cost of batching on the random workload. Both schedulers incur substantially higher average latency than Sequential (~0.5 ms) across all batch sizes. At small batches, MM latency exceeds MV's due to GEMM setup overhead; at large batches, MM's faster execution drains the queue sooner, resulting in lower latency than MV despite higher throughput.
+
+![Figure 2. Average latency vs batch size for Batch(MV) and Batch(MM) on the random workload. The Sequential baseline (~0.5 ms) is shown as a dotted reference line.](../figures/fig_latency.png)
+
 ### 3.3 Microbenchmark
 
 To isolate the effect of L from scheduler dynamics, the MV and MM kernels are benchmarked directly on a synthetic inverted list (n = 4,000 vectors, d = 128) for L ∈ {1, …, 256}, with 50 repetitions per point.
 
-**Table 5. Kernel throughput as a function of L. Metric: ns/(query × vector), lower is better.**
+**Table 6. Kernel throughput as a function of L. Metric: ns/(query × vector), lower is better.**
 
 
 | L     | MV (ns/q·v) | MM (ns/q·v) | MM/MV speedup         |
@@ -212,6 +220,8 @@ To isolate the effect of L from scheduler dynamics, the MV and MM kernels are be
 
 MV throughput is approximately constant across all values of L (5.1–5.5 ns/q·v), as each query is processed independently. MM throughput improves sharply with L, crossing the MV baseline at L = 8 and reaching a 3.77× speedup at L = 256. The crossover corresponds to the point where GEMM arithmetic intensity (L/2 FLOP/byte) exceeds the GEMV baseline (0.5 FLOP/byte). In the main experiment, mean L ≈ 3.6–4.2 on random (below the crossover) and mean L ≈ 12.4–14.6 on clustered (above it), fully accounting for the reversed MV–MM ordering observed in Table 1.
 
+![Figure 3. Microbenchmark: scan kernel throughput (ns per query per vector) as a function of L. MV is flat; MM crosses MV at L = 8.](../figures/fig_microbench.png)
+
 ---
 
 ## 4. Discussion
@@ -224,6 +234,6 @@ MV throughput is approximately constant across all values of L (5.1–5.5 ns/q·
 
 **RQ4.** The microbenchmark isolates L as the governing variable. MV throughput is approximately constant regardless of L, while MM throughput improves sharply with L, crossing the MV baseline at L = 8. This threshold corresponds to the point at which GEMM arithmetic intensity (L/2 FLOP/byte) exceeds that of GEMV (0.5 FLOP/byte) on the experimental hardware. In the main experiment, mean L ≈ 3.6–4.2 on random places Batch(MM) below this crossover, while mean L ≈ 12.4–14.6 on clustered places it well above, fully accounting for the reversed ordering in Table 1.
 
-**Summary.** Time-window batching is a viable strategy for improving IVF throughput without modifying the index or compromising recall. In practice, the choice of scan mode and batch parameters should be guided by the expected query distribution: workloads with high spatial locality favour Batch(MM) with larger batch sizes, while low-locality workloads favour Batch(MV). The L distribution of a target workload provides a principled basis for this configuration. The gains, however, come at the cost of higher per-query latency due to queueing, and the throughput–latency trade-off must be weighed against the application's tail-latency requirements.
+**Summary.** Time-window batching consistently outperforms sequential execution without modifying the index or compromising recall. In practice, the key variable governing scan mode selection is L — the number of queries sharing each inverted list per batch. When L is below the crossover threshold (~8 on the experimental hardware), Batch(MV) is preferable; above it, Batch(MM) is preferable. L itself is shaped by two factors: *batch size*, which is jointly determined by the system's target QPS and acceptable latency budget, and *query distribution*, which determines how much list overlap arises within each batch. Practitioners can estimate the likely L range from these two factors and use it to select the appropriate scan mode. The gains, however, come at the cost of higher per-query latency due to queueing, and the throughput–latency trade-off must be weighed against the application's tail-latency requirements.
 
 **Limitations and Future Work.** The engine is deliberately single-threaded to isolate scheduling effects; whether the observed gains survive in a multi-core deployment remains an open question. The current design assigns each scheduler a fixed scan mode — an adaptive strategy that switches between MV and MM per batch based on observed L would eliminate the regression on random workloads while preserving MM's advantage on clustered ones. All results are reported on SIFT1M; validation on datasets with different dimensionalities or cluster geometries would strengthen the generalizability of the findings.
