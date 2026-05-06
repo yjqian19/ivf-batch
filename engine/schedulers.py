@@ -103,19 +103,36 @@ def run_batch(index, queries, arrival_times, delta_t_ms, max_batch_size,
 
 # ── Workload generation ──────────────────────────────────────────────────────
 
-def generate_clustered_queries(index, n_queries=10000, n_centers=10, seed=42):
-    """Create a clustered workload by sampling from selected inverted lists."""
+def select_clustered_queries(index, real_queries, gt=None, n_centers=10,
+                             target_n=None, seed=42):
+    """Filter real queries to those whose primary centroid is one of n_centers
+    most-populous centroids. Returns (queries, gt_or_None, info).
+
+    Unlike a synthetic clustered workload, every returned query is a real,
+    held-out SIFT query with valid groundtruth — recall is well-defined.
+
+    Parameters
+    ----------
+    index        : custom IVF index
+    real_queries : (Nq, d) the held-out query set (e.g. sift_query.fvecs)
+    gt           : (Nq, 100) ground-truth IDs aligned with real_queries, or None
+    n_centers    : how many hot centroids to keep — fewer = more clustered
+    target_n     : optional sub-sample to this size (for fixed workload size)
+    """
     rng = np.random.default_rng(seed)
-    selected = rng.choice(index.n_clusters, n_centers, replace=False)
-    per_center = n_queries // n_centers
-
-    parts = []
-    for c_id in selected:
-        vecs = index.inverted_lists[c_id]
-        if len(vecs) >= per_center:
-            idx = rng.choice(len(vecs), per_center, replace=False)
-            parts.append(vecs[idx].copy())
-        else:
-            parts.append(vecs.copy())
-
-    return np.vstack(parts).astype(np.float32)
+    primary = index.quantizer_search(real_queries, nprobe=1)[:, 0]
+    counts = np.bincount(primary, minlength=index.n_clusters)
+    selected = np.argsort(counts)[-n_centers:][::-1]
+    mask = np.isin(primary, selected)
+    idx = np.where(mask)[0]
+    if target_n is not None and len(idx) > target_n:
+        idx = np.sort(rng.choice(idx, target_n, replace=False))
+    return (
+        real_queries[idx].astype(np.float32),
+        gt[idx] if gt is not None else None,
+        {
+            "n_queries": int(len(idx)),
+            "selected_centroids": selected.tolist(),
+            "queries_per_centroid": counts[selected].tolist(),
+        },
+    )

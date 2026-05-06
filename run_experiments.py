@@ -12,7 +12,7 @@ from engine.schedulers import (
     generate_arrivals,
     run_sequential,
     run_batch,
-    generate_clustered_queries,
+    select_clustered_queries,
 )
 
 DATA_DIR = "data/sift"
@@ -111,40 +111,64 @@ def main():
     print(f"  Wall time: {stats_seq['wall_time']:.3f}s")
     print(f"  Latency:   {fmt_lat(stats_seq['query_times'])}")
 
-    # ── 2  Batch(MV) — parameter sweep ───────────────────────────────────
-    section("Batch(MV) — time-window batching, per-list MV scan")
+    # ── 2  Batch(MV) — parameter sweep on RANDOM workload ────────────────
+    section("Batch(MV) — random workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
     run_sweep(index, queries, gt, arrivals, scan_mode="mv")
 
-    # ── 3  Batch(MM) — parameter sweep ───────────────────────────────────
-    section("Batch(MM) — time-window batching, per-list MM scan")
+    # ── 3  Batch(MM) — parameter sweep on RANDOM workload ────────────────
+    section("Batch(MM) — random workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
     run_sweep(index, queries, gt, arrivals, scan_mode="mm")
 
-    # ── 4  Workload comparison: random vs clustered ───────────────────────
-    section("Workload Comparison — Random vs Clustered Queries")
+    # ── 4  Build clustered workload from REAL queries ─────────────────────
+    section("Clustered Workload — selected from sift_query.fvecs")
+    cl_queries, cl_gt, cl_info = select_clustered_queries(
+        index, queries, gt, n_centers=10, seed=42,
+    )
+    print(f"  selected {cl_info['n_queries']} queries falling into "
+          f"{len(cl_info['selected_centroids'])} hottest centroids")
+    print(f"  per-centroid query counts: {cl_info['queries_per_centroid']}")
+    cl_arrivals = generate_arrivals(cl_info['n_queries'], TARGET_QPS)
 
-    clustered = generate_clustered_queries(index, n_queries=10000, seed=42)
-    arr = generate_arrivals(10000, TARGET_QPS)
+    # ── 5  Batch(MV) — parameter sweep on CLUSTERED workload ─────────────
+    section("Batch(MV) — clustered workload sweep")
+    print(f"\n  Arrival QPS = {TARGET_QPS}\n")
+    run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mv")
 
-    for wl_name, wl_q in [("Random (sift_query)", queries),
-                           ("Clustered (10 regions)", clustered)]:
+    # ── 6  Batch(MM) — parameter sweep on CLUSTERED workload ─────────────
+    section("Batch(MM) — clustered workload sweep")
+    print(f"\n  Arrival QPS = {TARGET_QPS}\n")
+    run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mm")
+
+    # ── 7  Workload comparison at fixed Δt=5ms / MaxBS=128 ───────────────
+    section("Workload Comparison — Random vs Clustered (Δt=5ms, MaxBS=128)")
+
+    for wl_name, wl_q, wl_gt, wl_arr in [
+        ("Random (sift_query)", queries, gt, arrivals),
+        (f"Clustered ({cl_info['n_queries']} real queries, "
+         f"{len(cl_info['selected_centroids'])} centroids)", cl_queries, cl_gt, cl_arrivals),
+    ]:
         print(f"\n  Workload: {wl_name}")
 
-        _, _, s1 = run_sequential(index, wl_q, k=K, nprobe=NPROBE)
+        ids_s, _, s1 = run_sequential(index, wl_q, k=K, nprobe=NPROBE)
         t1 = s1["query_times"]
+        r_s = recall_at_k(ids_s, wl_gt, k=K)
         print(f"    Sequential: {s1['qps']:>8.0f} QPS  wall={s1['wall_time']:.3f}s  "
+              f"recall={r_s:.3f}  "
               f"avg_lat={np.mean(t1)*1000:.3f}ms  "
               f"p95_lat={np.percentile(t1, 95)*1000:.3f}ms  "
               f"p99_lat={np.percentile(t1, 99)*1000:.3f}ms")
 
         for label, mode in [("Batch(MV)", "mv"), ("Batch(MM)", "mm")]:
-            _, _, s = run_batch(
-                index, wl_q, arr, delta_t_ms=5, max_batch_size=128,
+            ids_b, _, s = run_batch(
+                index, wl_q, wl_arr, delta_t_ms=5, max_batch_size=128,
                 k=K, nprobe=NPROBE, scan_mode=mode,
             )
             lat = s["latencies"]
+            r_b = recall_at_k(ids_b, wl_gt, k=K)
             print(f"    {label}:   {s['qps']:>8.0f} QPS  wall={s['wall_time']:.3f}s  "
+                  f"recall={r_b:.3f}  "
                   f"avg_lat={np.mean(lat)*1000:.3f}ms  "
                   f"p95_lat={np.percentile(lat, 95)*1000:.3f}ms  "
                   f"p99_lat={np.percentile(lat, 99)*1000:.3f}ms  "
