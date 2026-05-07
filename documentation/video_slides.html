@@ -498,7 +498,7 @@
 
 <!-- Slide 9: Main result figure -->
 <section class="slide" data-notes="main-overview">
-  <h2>Main result — workload flips the winner</h2>
+  <h2>Main Experiment: workload flips the winner</h2>
 
   <div class="fig">
     <img src="../figures/fig_overview_qps.png" alt="Throughput overview">
@@ -512,9 +512,9 @@
   </ul>
 </section>
 
-<!-- Slide 11: Detailed table -->
+<!-- Slide 10: Detailed table -->
 <section class="slide" data-notes="main-table">
-  <h2>Main experiment — numbers (5 runs, mean ± std)</h2>
+  <h2>Main Experiment: throughput and latency numbers</h2>
 
   <h3>Random workload &nbsp;<span class="small">— observed mean L ≈ 3.6–4.2</span></h3>
   <table>
@@ -542,9 +542,9 @@
   </p>
 </section>
 
-<!-- Slide 12: List sharing -->
+<!-- Slide 11: List sharing -->
 <section class="slide" data-notes="list-sharing">
-  <h2>Why the winner flips: list sharing <code>L</code></h2>
+  <h2>Main Experiment: why the winner flips</h2>
 
   <p class="lead">
     <code>L</code> is the number of queries in a batch that share one inverted list.
@@ -578,9 +578,9 @@
   </ul>
 </section>
 
-<!-- Slide 13: Parameter sweep -->
+<!-- Slide 12: Parameter sweep -->
 <section class="slide" data-notes="sweep">
-  <h2>Batch size sweep: larger batches let MM catch up</h2>
+  <h2>Batch Size Sweep: larger batches let MM catch up</h2>
 
   <div class="fig">
     <img src="../figures/fig_sweep.png" alt="Sweep: MM vs MV across batch sizes and workloads">
@@ -594,9 +594,9 @@
   </ul>
 </section>
 
-<!-- Slide 14: Sweep detail -->
+<!-- Slide 13: Sweep detail -->
 <section class="slide" data-notes="sweep-l">
-  <h2>Sweep detail: batch size changes the <code>L</code> regime</h2>
+  <h2>Batch Size Sweep: batch size changes the <code>L</code> regime</h2>
 
   <table class="compact-table">
     <thead>
@@ -626,9 +626,9 @@
   </p>
 </section>
 
-<!-- Slide 15: Microbenchmark — the core mechanism -->
+<!-- Slide 14: Micro Benchmark — the core mechanism -->
 <section class="slide" data-notes="microbench">
-  <h2>Microbenchmark: isolate <code>L</code> — crossover around <code>L = 8</code></h2>
+  <h2>Micro Benchmark: isolate <code>L</code> — crossover around <code>L = 8</code></h2>
 
   <div class="fig">
     <img src="../figures/fig_microbench.png" alt="Microbench: kernel ns/(q·v) vs L">
