@@ -2,7 +2,7 @@
 %%% Do NOT edit. File created by BibTeX with style
 %%% ACM-Reference-Format-Journals [18-Jan-2012].
 
-\begin{thebibliography}{2}
+\begin{thebibliography}{8}
 
 %%% ====================================================================
 %%% NOTE TO THE USER: you can override these defaults by providing
@@ -36,14 +36,36 @@
 \providecommand\natexlab[1]{#1}
 \providecommand\showeprint[2][]{arXiv:#2}
 
-\bibitem[Johnson et~al\mbox{.}(2021)]%
+\bibitem[Gao et~al\mbox{.}(2025)]%
+        {ivfrabitq2025}
+\bibfield{author}{\bibinfo{person}{Jianyang Gao}, \bibinfo{person}{Cheng Long},
+  {et~al\mbox{.}}} \bibinfo{year}{2025}\natexlab{}.
+\newblock \bibinfo{title}{{GPU}-Native Approximate Nearest Neighbor Search with
+  {IVF-RaBitQ}}.
+\newblock
+\showeprint[arxiv]{2602.23999}
+
+
+\bibitem[J{\'e}gou et~al\mbox{.}(2011)]%
+        {pq2011}
+\bibfield{author}{\bibinfo{person}{Herv{\'e} J{\'e}gou},
+  \bibinfo{person}{Matthijs Douze}, {and} \bibinfo{person}{Cordelia Schmid}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Product Quantization for Nearest Neighbor Search}.
+\newblock \bibinfo{journal}{\emph{{IEEE} Transactions on Pattern Analysis and
+  Machine Intelligence}} \bibinfo{volume}{33}, \bibinfo{number}{1}
+  (\bibinfo{year}{2011}), \bibinfo{pages}{117--128}.
+\newblock
+
+
+\bibitem[Johnson et~al\mbox{.}(2019)]%
         {faiss2021}
 \bibfield{author}{\bibinfo{person}{Jeff Johnson}, \bibinfo{person}{Matthijs
   Douze}, {and} \bibinfo{person}{Herv{\'e} J{\'e}gou}.}
-  \bibinfo{year}{2021}\natexlab{}.
+  \bibinfo{year}{2019}\natexlab{}.
 \newblock \showarticletitle{Billion-Scale Similarity Search with {GPU}s}.
 \newblock \bibinfo{journal}{\emph{{IEEE} Transactions on Big Data}}
-  (\bibinfo{year}{2021}).
+  (\bibinfo{year}{2019}).
 \newblock
 
 
@@ -55,6 +77,59 @@
   Search Using Hierarchical Navigable Small World Graphs}.
 \newblock \bibinfo{journal}{\emph{{IEEE} Transactions on Pattern Analysis and
   Machine Intelligence}} (\bibinfo{year}{2020}).
+\newblock
+
+
+\bibitem[Mohoney et~al\mbox{.}(2025)]%
+        {quake2025}
+\bibfield{author}{\bibinfo{person}{Jason Mohoney}, \bibinfo{person}{Roger
+  Waleffe}, \bibinfo{person}{Shivaram Venkataraman}, {and}
+  \bibinfo{person}{Theodoros Rekatsinas}.} \bibinfo{year}{2025}\natexlab{}.
+\newblock \showarticletitle{Quake: Adaptive Indexing for Vector Search}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 19th USENIX Symposium on
+  Operating Systems Design and Implementation}}.
+\newblock
+
+
+\bibitem[Mohoney et~al\mbox{.}(2023)]%
+        {hqi2023}
+\bibfield{author}{\bibinfo{person}{Jason Mohoney}, \bibinfo{person}{Roger
+  Waleffe}, \bibinfo{person}{Henry Xu}, \bibinfo{person}{Theodoros Rekatsinas},
+  {and} \bibinfo{person}{Shivaram Venkataraman}.}
+  \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{High-Throughput Vector Similarity Search in
+  Knowledge Graphs}. In \bibinfo{booktitle}{\emph{Proceedings of the ACM SIGMOD
+  International Conference on Management of Data}}.
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2021)]%
+        {milvus2021}
+\bibfield{author}{\bibinfo{person}{Jianguo Wang}, \bibinfo{person}{Xiaomeng
+  Yi}, \bibinfo{person}{Rentong Guo}, \bibinfo{person}{Hai Jin},
+  \bibinfo{person}{Peng Xu}, \bibinfo{person}{Shengjun Li},
+  \bibinfo{person}{Xiangyu Wang}, \bibinfo{person}{Xiangzhou Guo},
+  \bibinfo{person}{Chengming Li}, \bibinfo{person}{Xiaohai Xu},
+  \bibinfo{person}{Kun Yu}, \bibinfo{person}{Yuxing Yuan},
+  \bibinfo{person}{Yinghao Zou}, \bibinfo{person}{Jiquan Long},
+  \bibinfo{person}{Yihua Cai}, \bibinfo{person}{Zhenxiang Li},
+  \bibinfo{person}{Zhifan Zhang}, \bibinfo{person}{Yihua Mo},
+  \bibinfo{person}{Jingyu Gu}, \bibinfo{person}{Ruiyi Jiang}, {and}
+  \bibinfo{person}{Yi Wei}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{{Milvus}: A Purpose-Built Vector Data Management
+  System}. In \bibinfo{booktitle}{\emph{Proceedings of the ACM SIGMOD
+  International Conference on Management of Data}}.
+\newblock
+
+
+\bibitem[Zukowski et~al\mbox{.}(2007)]%
+        {coopscans2007}
+\bibfield{author}{\bibinfo{person}{Marcin Zukowski},
+  \bibinfo{person}{S{\'a}ndor H{\'e}man}, \bibinfo{person}{Niels Nes}, {and}
+  \bibinfo{person}{Peter Boncz}.} \bibinfo{year}{2007}\natexlab{}.
+\newblock \showarticletitle{Cooperative Scans: Dynamic Bandwidth Sharing in a
+  {DBMS}}. In \bibinfo{booktitle}{\emph{Proceedings of the 33rd International
+  Conference on Very Large Data Bases}}. \bibinfo{pages}{723--734}.
 \newblock
 
 

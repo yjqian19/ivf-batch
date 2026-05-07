@@ -58,6 +58,39 @@ To export to A4 PDF using Chrome headless:
   "file:///Volumes/yjbolt/projects/ivf-batch/documentation/midterm_report.html"
 ```
 
+## Final Report LaTeX PDF
+
+The ACM final report source lives at:
+
+- `documentation/latex/final_report_acm.tex`
+
+After editing the `.tex` file, compile the PDF from the LaTeX directory,
+not from the repository root:
+
+```bash
+cd documentation/latex
+PATH="/Library/TeX/texbin:$PATH" latexmk -pdf -interaction=nonstopmode final_report_acm.tex
+```
+
+This generates/updates:
+
+- `documentation/latex/final_report_acm.pdf`
+
+If `latexmk` is unavailable, use the manual fallback from
+`documentation/latex`:
+
+```bash
+pdflatex -interaction=nonstopmode final_report_acm.tex
+bibtex final_report_acm
+pdflatex -interaction=nonstopmode final_report_acm.tex
+pdflatex -interaction=nonstopmode final_report_acm.tex
+```
+
+Expected non-fatal warnings may include ACM image-description warnings
+and bibliography metadata warnings. Check the log for `Overfull \hbox`
+after layout-sensitive edits, especially in two-column paragraphs and
+wide inline math.
+
 ## Reference Files
 
 - `documentation/project_proposal/project_proposal.md` — original proposal

@@ -16,45 +16,56 @@ Warning--no number and no volume in faiss2021
 Warning--page numbers missing in both pages and numpages fields in faiss2021
 Warning--no number and no volume in hnsw2020
 Warning--page numbers missing in both pages and numpages fields in hnsw2020
-You've used 2 entries,
+Warning--empty publisher in quake2025
+Warning--empty address in quake2025
+Warning--page numbers missing in both pages and numpages fields in quake2025
+Warning--empty publisher in hqi2023
+Warning--empty address in hqi2023
+Warning--page numbers missing in both pages and numpages fields in hqi2023
+Warning--empty publisher in milvus2021
+Warning--empty address in milvus2021
+Warning--page numbers missing in both pages and numpages fields in milvus2021
+Warning--empty publisher in coopscans2007
+Warning--empty address in coopscans2007
+You've used 8 entries,
             6273 wiz_defined-function locations,
-            1526 strings with 18516 characters,
-and the built_in function-call counts, 2141 in all, are:
-= -- 329
-> -- 62
+            1557 strings with 19884 characters,
+and the built_in function-call counts, 9383 in all, are:
+= -- 1084
+> -- 424
 < -- 0
-+ -- 21
-- -- 23
-* -- 136
-:= -- 199
-add.period$ -- 10
-call.type$ -- 2
-change.case$ -- 13
-chr.to.int$ -- 2
-cite$ -- 6
-duplicate$ -- 165
-empty$ -- 121
-format.name$ -- 31
-if$ -- 550
++ -- 147
+- -- 143
+* -- 741
+:= -- 965
+add.period$ -- 36
+call.type$ -- 8
+change.case$ -- 77
+chr.to.int$ -- 8
+cite$ -- 23
+duplicate$ -- 779
+empty$ -- 554
+format.name$ -- 175
+if$ -- 2235
 int.to.chr$ -- 2
 int.to.str$ -- 1
-missing$ -- 8
-newline$ -- 55
-num.names$ -- 14
-pop$ -- 76
+missing$ -- 32
+newline$ -- 99
+num.names$ -- 56
+pop$ -- 385
 preamble$ -- 1
-purify$ -- 29
+purify$ -- 140
 quote$ -- 0
-skip$ -- 49
+skip$ -- 270
 stack$ -- 0
-substring$ -- 108
-swap$ -- 8
+substring$ -- 520
+swap$ -- 52
 text.length$ -- 0
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 32
-warning$ -- 4
-while$ -- 10
+type$ -- 198
+warning$ -- 15
+while$ -- 34
 width$ -- 0
-write$ -- 74
-(There were 4 warnings)
+write$ -- 179
+(There were 15 warnings)

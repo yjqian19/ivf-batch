@@ -38,8 +38,9 @@ Experiments on SIFT1M confirm that batching consistently improves
 throughput over sequential execution: Batch(MV) outperforms Sequential
 by up to 19\% on random queries, while Batch(MM) achieves up to 40\%
 gains on clustered queries, with all schedulers preserving identical
-recall. The preferred scan mode shifts with workload structure, and
-batch size further modulates the relative performance between MV and MM.
+recall. The preferred scan mode shifts with the query distribution over
+IVF clusters, and batch size further modulates the relative performance
+between MV and MM.
 A microbenchmark isolates the mechanism underlying these differences and
 supports practical guidance on applying batch scheduling in IVF-based
 vector search.
@@ -60,11 +61,11 @@ latency bounded.
 
 The dominant approach to improving vector search performance is to
 optimize the index structure. Hierarchical Navigable Small World graphs
-(HNSW)~\cite{hnsw2020}, product quantization, and IVF variants have
-each offered significant gains in recall-efficiency trade-offs. By
-contrast, the query execution layer---how individual queries are
-dispatched and processed at runtime---has received comparatively less
-attention.
+(HNSW)~\cite{hnsw2020}, product quantization~\cite{pq2011}, and IVF
+variants~\cite{faiss2021} have each offered significant gains in
+recall-efficiency trade-offs. By contrast, the query execution
+layer---how individual queries are dispatched and processed at
+runtime---has received comparatively less attention.
 
 This work takes the index as fixed and asks: \textbf{can throughput be
 improved by reorganizing how concurrent queries are executed?}
@@ -78,21 +79,46 @@ this overlap---loading each list once and computing distances for all
 queries that need it---the total number of memory loads decreases
 substantially.
 
-To evaluate this approach, we design experiments under two workload
-conditions: random queries and clustered queries. We expect the degree
-of list overlap---and thus the benefit of batching---to differ
-substantially between the two, making them a natural test of when the
-approach succeeds and when it does not. We further consider two scan
-modes: Batch(MV), which computes distances for each query individually
-via matrix-vector multiplication, and Batch(MM), which stacks all
-queries sharing a list into a single matrix-matrix multiplication. We
-examine how the choice of scan mode and batch size affects throughput
-under each workload.
+Some recent systems have also focused on this batching strategy. Milvus
+groups concurrent queries into cache-conscious blocks~\cite{milvus2021};
+HQI batches queries over shared clusters for high-throughput vector
+search~\cite{hqi2023}; Quake measures batching effects in the context of
+adaptive indexing~\cite{quake2025}; and GPU-native IVF work uses
+batching to expose GEMM-friendly computation and coalesced memory
+access~\cite{ivfrabitq2025}. These systems demonstrate the value of
+batching, but they do not isolate when GEMM-based list scanning should
+replace per-query GEMV under a fixed index, nor how the query
+distribution over IVF clusters and batch size govern that choice.
 
-Our experiments reveal clear performance differences across workloads
-and scan modes, and offer practical insights into how batch scheduling
-strategies can be applied to improve throughput in IVF-based vector
-search.
+To study these conditions, we vary three aspects of the execution
+setting. First, we compare random queries with clustered queries because
+they induce different degrees of list overlap. Second, we compare two
+scan modes: Batch(MV), which scans each list query by query, and
+Batch(MM), which stacks queries sharing a list into a matrix-matrix
+multiplication. Third, we vary batch size to determine how much
+cross-query sharing is needed before batching and GEMM become effective.
+
+This gap motivates four research questions:
+
+\begin{itemize}
+  \item \textbf{RQ1.} Does time-window batching improve throughput over
+    sequential execution, under both random and clustered workloads?
+  \item \textbf{RQ2.} How does scan mode choice (MV vs MM) affect
+    performance under random versus clustered query distributions?
+  \item \textbf{RQ3.} How does batch size affect the performance of
+    batch schedulers?
+  \item \textbf{RQ4.} What is the underlying mechanism that governs the
+    relative performance of the two scan modes?
+\end{itemize}
+
+We organize the evaluation into three experiments: a main experiment
+comparing all schedulers under fixed parameters, a batch-size sweep, and
+a kernel microbenchmark. We find that batching can outperform
+sequential execution, that the preferred scan mode changes with query
+distribution and batch size, and that $L$---the number of queries
+sharing each inverted list per batch---is the dominant variable behind
+the MV--MM trade-off. These findings lead to practical guidelines for
+choosing batch scheduling strategies under a fixed IVF index.
 
 \section{Method}
 
@@ -116,12 +142,15 @@ probe the same inverted list. The per-list batch scan exploits this by
 iterating over inverted lists in list-major order: for each list,
 distances are computed for all queries that probe it before moving to
 the next. Each list is therefore loaded from memory exactly once per
-batch, regardless of how many queries share it.
+batch, regardless of how many queries share it. This ``load once, serve
+many'' principle mirrors cooperative scan techniques in column-store
+databases~\cite{coopscans2007}.
 
 We define \textbf{L} as the number of queries within a batch that probe
 the same inverted list. Under sequential execution, $L = 1$ always.
 Under time-window batching, $L$ grows with batch size and workload
-locality, and directly determines which scan mode is more efficient.
+query distribution over IVF clusters, and directly determines which scan
+mode is more efficient.
 
 \subsubsection{Scan Modes}
 
@@ -135,10 +164,13 @@ intensity is constant at $0.5$ FLOP/byte, independent of $L$.
 \textbf{Batch(MM).} All $L$ queries are stacked into a query matrix and
 distances are computed via a single matrix-matrix multiply
 (\texttt{vecs @ Q.T}). Arithmetic intensity scales as $L/2$ FLOP/byte,
-making MM increasingly efficient as $L$ grows. However, GEMM carries
-non-trivial setup overhead at small $L$, degrading performance relative
-to MV. The crossover point is hardware-specific and is measured
-empirically in Section~\ref{sec:microbench}.
+making MM increasingly efficient as $L$ grows. Prior work on GPU-native
+IVF search has noted that batching queries enables GEMM-style execution
+and coalesced memory access~\cite{ivfrabitq2025}; here we characterize
+the crossover on CPU. GEMM carries non-trivial setup overhead at small
+$L$, degrading performance relative to MV. The crossover point is
+hardware-specific and is measured empirically in
+Section~\ref{sec:microbench}.
 
 \subsubsection{Schedulers}
 
@@ -167,10 +199,10 @@ bounds both waiting time at low load and memory pressure at high load.
 
 \subsubsection{Dataset}
 
-All experiments use the SIFT1M benchmark: one million 128-dimensional
-SIFT descriptors, evaluated under L2 distance, with 10,000 held-out
-test queries and precomputed ground truth. All vectors reside in memory;
-no disk I/O occurs during search.
+All experiments use the SIFT1M benchmark~\cite{pq2011}: one million
+128-dimensional SIFT descriptors, evaluated under L2 distance, with
+10,000 held-out test queries and precomputed ground truth. All vectors
+reside in memory; no disk I/O occurs during search.
 
 \subsubsection{Workloads}
 
@@ -199,18 +231,8 @@ isolate scheduling effects from multi-core parallelism.
 
 \subsubsection{Experimental Protocol}
 
-Three experiments address the following research questions:
-
-\begin{itemize}
-  \item \textbf{RQ1.} Does time-window batching improve throughput over
-    sequential execution, under both random and clustered workloads?
-  \item \textbf{RQ2.} How does scan mode choice (MV vs MM) affect
-    performance under random versus clustered query distributions?
-  \item \textbf{RQ3.} How does batch size affect the performance of
-    batch schedulers?
-  \item \textbf{RQ4.} What is the underlying mechanism that governs the
-    relative performance of the two scan modes?
-\end{itemize}
+We use three experiments to answer the research questions introduced in
+Section~1.
 
 \textbf{Experiment 1 --- Main Experiment (RQ1, RQ2).} All three
 schedulers are evaluated on both workloads under fixed parameters
@@ -220,8 +242,13 @@ statistics are reported as mean $\pm$ std; P99 latency is the median
 across runs.
 
 \textbf{Experiment 2 --- Batch Size Parameter Sweep (RQ3).} A grid
-search over $\Delta t \in \{0.5, 1, 2, 5, 10, 20, 50\}$\,ms and
-MaxBS $\in \{32, 64, 128, 256\}$ is conducted once on both workloads.
+search is conducted once on both workloads:
+\[
+\begin{array}{ll}
+\Delta t\ \mathrm{(ms)} & \in \{0.5, 1, 2, 5, 10, 20, 50\}, \\
+\mathrm{MaxBS}          & \in \{32, 64, 128, 256\}.
+\end{array}
+\]
 
 \textbf{Experiment 3 --- Microbenchmark (RQ4).} The MV and MM kernels
 are evaluated in isolation on a synthetic inverted list across a range
@@ -281,18 +308,18 @@ paper.
   \end{tabular}
 \end{table}
 
-Two findings stand out. First, batching consistently outperforms
-Sequential when the workload is favorable: Batch(MV) achieves $+19\%$
-on random, and Batch(MM) achieves $+40\%$ on clustered. Second, the
+Three findings stand out. First, batching can outperform Sequential:
+Batch(MV) achieves $+19\%$ on random, and Batch(MM) achieves $+40\%$
+on clustered. Second, the
 relative ordering of MV and MM is reversed across workloads---MV leads
-on random while MM leads on clustered. The throughput gains of batching
-come at the cost of higher per-query latency due to queueing: average
-latency rises from ${\sim}0.5$\,ms (Sequential) to 58--105\,ms for
-batch schedulers. Recall@10 is identical across all schedulers within
-each workload, confirming that the gains arise from execution
-reorganization rather than approximation.
+on random while MM leads on clustered. Third, these throughput gains
+come with a latency trade-off from queueing: average latency rises from
+${\sim}0.5$\,ms (Sequential) to 58--105\,ms for batch schedulers.
+Recall@10 remains identical across all schedulers within each workload,
+confirming that the gains arise from execution reorganization rather
+than approximation.
 
-\subsubsection{List Sharing ($L$)}
+\subsubsection{How Many Queries Share Each Inverted List ($L$)}
 
 \begin{table}
   \caption{Mean per-list reuse metrics across 5 runs.}
@@ -379,7 +406,7 @@ to 160.8\,ms, while the sequential baseline maintains ${\sim}0.5$\,ms.
 \end{table*}
 
 In contrast to the random workload, MM wins from small-to-medium batch
-sizes because clustered queries concentrate on overlapping lists, keeping
+sizes because clustered queries share many lists, keeping
 $L$ above the crossover even in small batches. At $\Delta t = 0.5$\,ms
 and MaxBS $= 32$, $L \approx 7.5$--$7.6$ sits right at the hardware
 crossover and MM barely loses ($-5\%$). As batch size grows, $L$ rises
@@ -388,8 +415,8 @@ $+24\%$.
 
 Figure~\ref{fig:sweep} summarises the sweep results across both
 workloads. The two trajectories---random rising from $-38\%$ and
-clustered starting near zero---illustrate how workload structure
-determines the operating regime of each scan mode.
+clustered starting near zero---illustrate how the query distribution
+over IVF clusters determines the operating regime of each scan mode.
 
 \begin{figure}
   \centering
@@ -452,53 +479,47 @@ Table~\ref{tab:main-results}.
 
 \section{Discussion}
 
-\textbf{RQ1.} Batching can meaningfully improve throughput over
-sequential execution, though the degree depends on both the scan mode
-and the workload. Batch(MV) outperforms Sequential on both workloads;
-Batch(MM) does so only on the clustered workload, where it achieves
-$+40\%$. On the random workload, Batch(MM) falls 3\% below
-Sequential---the queueing cost of batching is not recovered when
-per-batch scan overhead is high. The primary source of gain is list
-reuse: batching reduces unique list loads per query from 8 to 2.23 on
-random and 0.55 on clustered, a reduction of up to $14.5\times$ relative
-to sequential processing.
+The experiments show that batching is useful for IVF query execution:
+under the right workload and scan mode, batched execution can generate
+higher QPS than sequential processing.
 
-\textbf{RQ2.} Query distribution substantially affects the ranking of
-all three schedulers. On the random workload, Batch(MV) is the clear
-winner while Batch(MM) falls below even Sequential; on the clustered
-workload, Batch(MM) takes the lead and Sequential is last. Neither batch
-mode dominates unconditionally---the workload determines which strategy
-is most effective.
+\textbf{Batching can improve throughput by reusing list work.}
+The results indicate that time-window batching can improve throughput
+without modifying the index or changing Recall@10. Its benefit comes
+from reducing repeated list scans: unique list loads per query fall from
+8 under Sequential to 2.23 on the random workload and 0.55 on the
+clustered workload. This gain is not free, because time-window batching
+introduces queueing and increases per-query latency; the saved scan work
+therefore must outweigh the latency cost.
 
-\textbf{RQ3.} Larger batch sizes raise $L$ across both workloads. On
-the random workload, this narrows the gap between MV and MM but does not
-invert it. On the clustered workload, MM's lead is robust across all
-batch sizes. Batch size modulates the magnitude of the performance
-differences but does not alter their direction given a fixed query
-distribution.
+\textbf{The MV--MM choice is largely governed by $L$.}
+Neither scan mode is uniformly best. Batch(MV) is stronger when each
+inverted list is shared by only a few queries, because it avoids the
+setup overhead of GEMM; Batch(MM) becomes stronger when enough queries
+share the same list. The microbenchmark provides evidence for this
+mechanism: MM overtakes MV around $L = 8$ on the experimental hardware,
+near the point where GEMM arithmetic intensity exceeds the GEMV
+baseline. Thus, in this setting, $L$---the number of queries within a
+batch that probe the same inverted list---provides the most direct
+explanation for scan-mode behavior.
 
-\textbf{RQ4.} The microbenchmark isolates $L$ as the governing
-variable. MV throughput is approximately constant regardless of $L$,
-while MM throughput improves sharply with $L$, crossing the MV baseline
-at $L = 8$. This threshold corresponds to the point at which GEMM
-arithmetic intensity ($L/2$ FLOP/byte) exceeds that of GEMV
-($0.5$ FLOP/byte) on the experimental hardware. In the main experiment,
-mean $L \approx 3.6$--$4.2$ on random places Batch(MM) below this
-crossover, while mean $L \approx 12.4$--$14.6$ on clustered places it
-well above, fully accounting for the reversed ordering in
-Table~\ref{tab:main-results}.
+\textbf{$L$ is shaped by batch size and query distribution.}
+Larger batches place more queries in the same scheduling window, which
+makes it more likely that multiple queries probe a common inverted list.
+The query distribution over IVF clusters strengthens this effect by
+determining whether co-batched queries actually touch the same lists.
+This mechanism supports the batch-size sweep: increasing batch size and
+using more concentrated query distributions can both raise $L$ and move
+the system toward an MM-favorable regime.
 
-\textbf{Summary.} Time-window batching consistently outperforms
-sequential execution without modifying the index or compromising recall.
-The key variable governing scan mode selection is $L$---the number of
-queries sharing each inverted list per batch. When $L$ is below the
-crossover threshold (${\sim}8$ on the experimental hardware), Batch(MV)
-is preferable; above it, Batch(MM) is preferable. $L$ is shaped by
-\textit{batch size} (jointly determined by target QPS and latency
-budget) and \textit{query distribution} (which determines list overlap
-per batch). The gains, however, come at the cost of higher per-query
-latency due to queueing, and the throughput--latency trade-off must be
-weighed against the application's tail-latency requirements.
+\textbf{Practical Guideline.} These results suggest that a scheduler
+should choose the scan mode from the $L$ induced by its batch size and
+query distribution. A larger batch or a more concentrated query stream
+can increase per-list sharing, but the scheduler should rely on the
+observed $L$ rather than either factor alone. Low per-list sharing
+favors Batch(MV), while high sharing favors Batch(MM). The crossover
+point between the two should be measured for the target hardware and
+workload.
 
 \textbf{Limitations and Future Work.} The engine is deliberately
 single-threaded to isolate scheduling effects; whether the observed gains
