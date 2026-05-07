@@ -1,0 +1,115 @@
+{
+  "params": {
+    "delta_t_ms": 5.0,
+    "max_bs": 128,
+    "n_runs": 5
+  },
+  "summary": {
+    "random": {
+      "seq": {
+        "qps_mean": 1854.0,
+        "qps_std": 58.0,
+        "avg_lat_mean": 0.54,
+        "avg_lat_std": 0.02,
+        "p95_lat_mean": 0.74,
+        "p95_lat_std": 0.02,
+        "p99_median": 0.81,
+        "recall_mean": 0.956,
+        "recall_std": 0.0,
+        "queue_ms": 0.0,
+        "scan_ms": 0.52,
+        "lists_per_q": 8.0,
+        "m_mean": 1.0,
+        "m_p50": 1,
+        "m_p95": 1
+      },
+      "mv": {
+        "qps_mean": 2202.0,
+        "qps_std": 23.0,
+        "avg_lat_mean": 74.34,
+        "avg_lat_std": 3.85,
+        "p95_lat_mean": 106.79,
+        "p95_lat_std": 4.13,
+        "p99_median": 114.67,
+        "recall_mean": 0.956,
+        "recall_std": 0.0,
+        "queue_ms": 26.17,
+        "scan_ms": 47.72,
+        "lists_per_q": 2.23,
+        "m_mean": 3.6,
+        "m_p50": 3,
+        "m_p95": 8
+      },
+      "mm": {
+        "qps_mean": 1791.0,
+        "qps_std": 87.0,
+        "avg_lat_mean": 104.69,
+        "avg_lat_std": 7.57,
+        "p95_lat_mean": 134.6,
+        "p95_lat_std": 2.27,
+        "p99_median": 152.89,
+        "recall_mean": 0.956,
+        "recall_std": 0.0,
+        "queue_ms": 34.98,
+        "scan_ms": 69.19,
+        "lists_per_q": 1.92,
+        "m_mean": 4.2,
+        "m_p50": 4,
+        "m_p95": 10
+      }
+    },
+    "clustered": {
+      "seq": {
+        "qps_mean": 1650.0,
+        "qps_std": 33.0,
+        "avg_lat_mean": 0.61,
+        "avg_lat_std": 0.01,
+        "p95_lat_mean": 0.78,
+        "p95_lat_std": 0.02,
+        "p99_median": 0.88,
+        "recall_mean": 0.981,
+        "recall_std": 0.0,
+        "queue_ms": 0.0,
+        "scan_ms": 0.59,
+        "lists_per_q": 8.0,
+        "m_mean": 1.0,
+        "m_p50": 1,
+        "m_p95": 1
+      },
+      "mv": {
+        "qps_mean": 1933.0,
+        "qps_std": 39.0,
+        "avg_lat_mean": 96.19,
+        "avg_lat_std": 1.22,
+        "p95_lat_mean": 127.3,
+        "p95_lat_std": 1.24,
+        "p99_median": 139.06,
+        "recall_mean": 0.981,
+        "recall_std": 0.0,
+        "queue_ms": 31.73,
+        "scan_ms": 63.99,
+        "lists_per_q": 0.55,
+        "m_mean": 14.6,
+        "m_p50": 5,
+        "m_p95": 64
+      },
+      "mm": {
+        "qps_mean": 2303.0,
+        "qps_std": 111.0,
+        "avg_lat_mean": 58.09,
+        "avg_lat_std": 13.09,
+        "p95_lat_mean": 87.15,
+        "p95_lat_std": 20.56,
+        "p99_median": 106.98,
+        "recall_mean": 0.981,
+        "recall_std": 0.0,
+        "queue_ms": 20.89,
+        "scan_ms": 36.86,
+        "lists_per_q": 0.65,
+        "m_mean": 12.4,
+        "m_p50": 5,
+        "m_p95": 52
+      }
+    }
+  }
+}

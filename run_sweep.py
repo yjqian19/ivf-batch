@@ -8,10 +8,12 @@ Run once after fixing the k-means seed. Look for the (Δt, MaxBS) pair where:
 Then set DELTA_T_MS and MAX_BATCH_SIZE in run_main.py.
 """
 
+import json
 import time
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 
 from engine.data import read_fvecs, read_ivecs
@@ -73,6 +75,7 @@ def print_sweep_header():
 
 def run_sweep(index, queries, gt, arrivals, scan_mode):
     print_sweep_header()
+    rows = []
     for dt in DELTA_TS:
         for mbs in MAX_BSS:
             ids, _, s = run_batch(
@@ -80,16 +83,37 @@ def run_sweep(index, queries, gt, arrivals, scan_mode):
                 k=K, nprobe=NPROBE, scan_mode=scan_mode,
                 collect_stats=True,
             )
-            r = recall_at_k(ids, gt, k=K)
-            lat = s["latencies"]
-            qd  = s["queue_delays"]
-            mv  = s["m_values"]
-            print(f"  {dt:>6.1f} {mbs:>6} {np.mean(s['batch_sizes']):>6.1f} "
+            r    = recall_at_k(ids, gt, k=K)
+            lat  = s["latencies"]
+            qd   = s["queue_delays"]
+            mv   = s["m_values"]
+            avg_bs     = float(np.mean(s["batch_sizes"]))
+            avg_lat_ms = float(np.mean(lat)) * 1000
+            p95_lat_ms = float(np.percentile(lat, 95)) * 1000
+            avg_qd_ms  = float(np.mean(qd)) * 1000
+            l_mean     = float(np.mean(mv))
+            l_p50      = int(np.percentile(mv, 50))
+            l_p95      = int(np.percentile(mv, 95))
+            rows.append({
+                "dt_ms":      dt,
+                "max_bs":     mbs,
+                "avg_bs":     round(avg_bs, 1),
+                "qps":        int(s["qps"]),
+                "recall":     round(float(r), 3),
+                "avg_lat_ms": round(avg_lat_ms, 3),
+                "p95_lat_ms": round(p95_lat_ms, 3),
+                "avg_qd_ms":  round(avg_qd_ms, 3),
+                "l_mean":     round(l_mean, 1),
+                "l_p50":      l_p50,
+                "l_p95":      l_p95,
+            })
+            print(f"  {dt:>6.1f} {mbs:>6} {avg_bs:>6.1f} "
                   f"{s['qps']:>8.0f} {r:>7.3f} "
-                  f"{np.mean(lat)*1000:>9.3f}ms "
-                  f"{np.percentile(lat, 95)*1000:>9.3f}ms "
-                  f"{np.mean(qd)*1000:>9.3f}ms "
-                  f"{np.mean(mv):>7.1f} {np.percentile(mv, 50):>6.0f} {np.percentile(mv, 95):>6.0f}")
+                  f"{avg_lat_ms:>9.3f}ms "
+                  f"{p95_lat_ms:>9.3f}ms "
+                  f"{avg_qd_ms:>9.3f}ms "
+                  f"{l_mean:>7.1f} {l_p50:>6.0f} {l_p95:>6.0f}")
+    return rows
 
 
 def main():
@@ -112,17 +136,25 @@ def main():
 
     section("Sequential — baseline")
     ids_seq, _, s_seq = run_sequential(index, queries, k=K, nprobe=NPROBE)
+    seq_qt = s_seq["query_times"]
     print(f"  Recall@{K}: {recall_at_k(ids_seq, gt, K):.3f}  "
           f"QPS: {s_seq['qps']:.0f}  Wall: {s_seq['wall_time']:.3f}s")
-    print(f"  Latency: {fmt_lat(s_seq['query_times'])}")
+    print(f"  Latency: {fmt_lat(seq_qt)}")
+    sequential = {
+        "qps":        int(s_seq["qps"]),
+        "avg_lat_ms": round(float(np.mean(seq_qt)) * 1000, 3),
+        "p95_lat_ms": round(float(np.percentile(seq_qt, 95)) * 1000, 3),
+        "p99_lat_ms": round(float(np.percentile(seq_qt, 99)) * 1000, 3),
+        "recall":     round(float(recall_at_k(ids_seq, gt, K)), 3),
+    }
 
     section("Batch(MV) — random workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
-    run_sweep(index, queries, gt, arrivals, scan_mode="mv")
+    random_mv = run_sweep(index, queries, gt, arrivals, scan_mode="mv")
 
     section("Batch(MM) — random workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
-    run_sweep(index, queries, gt, arrivals, scan_mode="mm")
+    random_mm = run_sweep(index, queries, gt, arrivals, scan_mode="mm")
 
     section("Clustered Workload — selected from sift_query.fvecs")
     cl_queries, cl_gt, cl_info = select_clustered_queries(
@@ -145,23 +177,34 @@ def main():
 
     section("Batch(MV) — clustered workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
-    run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mv")
+    clustered_mv = run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mv")
 
     section("Batch(MM) — clustered workload sweep")
     print(f"\n  Arrival QPS = {TARGET_QPS}\n")
-    run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mm")
+    clustered_mm = run_sweep(index, cl_queries, cl_gt, cl_arrivals, scan_mode="mm")
 
     print()
+
+    return {
+        "sequential":   sequential,
+        "random_mv":    random_mv,
+        "random_mm":    random_mm,
+        "clustered_mv": clustered_mv,
+        "clustered_mm": clustered_mm,
+    }
 
 
 if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_path = f"results/sweep_{timestamp}.txt"
+    json_path   = f"results/sweep_{timestamp}.json"
     tee = Tee(result_path)
     sys.stdout = tee
     try:
-        main()
+        data = main()
     finally:
         sys.stdout = tee.stdout
         tee.close()
         print(f"\nResults saved to {result_path}")
+    Path(json_path).write_text(json.dumps(data, indent=2))
+    print(f"Structured data saved to {json_path}")

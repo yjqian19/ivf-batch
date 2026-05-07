@@ -46,7 +46,7 @@ Two implementations of the per-list distance computation are provided, differing
 
 **Batch(MV).** Distances are computed for each of the L queries individually via a matrix-vector multiply (`vecs @ q`). Arithmetic intensity is constant at 0.5 FLOP/byte, independent of L.
 
-**Batch(MM).** All L queries are stacked into a query matrix and distances are computed via a single matrix-matrix multiply (`vecs @ Q.T`). Arithmetic intensity scales as L/2 FLOP/byte, making MM increasingly efficient as L grows. However, GEMM carries non-trivial setup overhead at small L, degrading performance relative to MV. The crossover point is hardware-specific and is measured empirically in Section 3.3.
+**Batch(MM).** All L queries are stacked into a query matrix and distances are computed via a single matrix-matrix multiply (`vecs @ Q.T`). Arithmetic intensity scales as L/2 FLOP/byte, making MM increasingly efficient as L grows. However, GEMM carries non-trivial setup overhead at small L, degrading performance relative to MV. The crossover point is hardware-specific and is measured empirically in Section 3.4.
 
 #### 2.1.4 Schedulers
 
@@ -106,6 +106,12 @@ We present results in three stages. First, the main experiment demonstrates the 
 All three schedulers are evaluated at fixed parameters (Δt = 5 ms, MaxBS = 128) across 5 independent runs. Results are reported as mean ± std; P99 latency is the median across runs.
 
 #### 3.1.1 Performance Overview
+
+Figure 1 shows throughput across all three schedulers under both workloads. The two lines cross between Batch(MV) and Batch(MM): on the random workload, throughput peaks at Batch(MV) then falls for MM; on the clustered workload, it rises monotonically with MM taking the lead. This crossing is the central result of the paper.
+
+![](../figures/fig_overview_qps.png)
+
+*Figure 1. Throughput (QPS) across schedulers for random and clustered workloads.*
 
 **Table 1. Throughput and Recall@10 (mean ± std, 5 runs). Δt = 5 ms, MaxBS = 128.**
 
@@ -191,15 +197,23 @@ As Δt and MaxBS grow, AvgBS and L both increase, and MM's disadvantage narrows 
 
 In contrast to the random workload, MM wins from small-to-medium batch sizes because clustered queries concentrate on overlapping lists, keeping L above the crossover even in small batches. At Δt = 0.5 ms and MaxBS = 32, L ≈ 7.5–7.6 sits right at the hardware crossover and MM barely loses (−5%). As batch size grows, L rises well above the crossover and MM's advantage increases steadily to +24%. Notably, at the main experiment parameters MM achieves AvgBS = 71 versus MV's 121 — faster execution drains the queue earlier — yet L remains at 11.9, well above the crossover. As with the random workload, MV latency grows with batch size (23 ms to 192 ms), reflecting the same throughput–latency trade-off.
 
-Figure 1 summarises the sweep results across both workloads. The two trajectories — random rising from −38% and clustered starting near zero — illustrate how workload structure determines the operating regime of each scan mode across the full range of batch sizes.
+Figure 2 summarises the sweep results across both workloads. The two trajectories — random rising from −38% and clustered starting near zero — illustrate how workload structure determines the operating regime of each scan mode across the full range of batch sizes.
 
-![Figure 1. Batch size sweep: relative QPS of MM vs MV across random and clustered workloads. Highlighted points correspond to the selected rows in Tables 4 and 5; faint dots show all 28 configurations.](../figures/fig_sweep.png)
+![](../figures/fig_sweep.png)
 
-Figure 2 shows the latency cost of batching on the random workload. Both schedulers incur substantially higher average latency than Sequential (~0.5 ms) across all batch sizes. At small batches, MM latency exceeds MV's due to GEMM setup overhead; at large batches, MM's faster execution drains the queue sooner, resulting in lower latency than MV despite higher throughput.
+*Figure 2. Batch size sweep: relative QPS of MM vs MV across random and clustered workloads. Highlighted points correspond to the selected rows in Tables 4 and 5; faint dots show all 28 configurations.*
 
-![Figure 2. Average latency vs batch size for Batch(MV) and Batch(MM) on the random workload. The Sequential baseline (~0.5 ms) is shown as a dotted reference line.](../figures/fig_latency.png)
+Figures 3 and 4 show the latency cost of batching on the random and clustered workloads respectively. On the random workload, both schedulers incur substantially higher average latency than Sequential (~0.5 ms) across all batch sizes; at small batches, MM latency exceeds MV's due to GEMM setup overhead, but at large batches MM's faster execution drains the queue sooner, resulting in lower latency than MV. On the clustered workload, the pattern reverses: MM latency runs consistently below MV across all batch sizes, because the high list-sharing rate gives MM a sustained throughput advantage that keeps the queue short.
 
-### 3.3 Microbenchmark
+![](../figures/fig_latency.png)
+
+*Figure 3. Average latency vs batch size for Batch(MV) and Batch(MM) on the random workload. The Sequential baseline (~0.5 ms) is shown as a dotted reference line.*
+
+![](../figures/fig_latency_clustered.png)
+
+*Figure 4. Average latency vs batch size for Batch(MV) and Batch(MM) on the clustered workload. The Sequential baseline (~0.5 ms) is shown as a dotted reference line.*
+
+### 3.4 Microbenchmark
 
 To isolate the effect of L from scheduler dynamics, the MV and MM kernels are benchmarked directly on a synthetic inverted list (n = 4,000 vectors, d = 128) for L ∈ {1, …, 256}, with 50 repetitions per point.
 
@@ -220,7 +234,9 @@ To isolate the effect of L from scheduler dynamics, the MV and MM kernels are be
 
 MV throughput is approximately constant across all values of L (5.1–5.5 ns/q·v), as each query is processed independently. MM throughput improves sharply with L, crossing the MV baseline at L = 8 and reaching a 3.77× speedup at L = 256. The crossover corresponds to the point where GEMM arithmetic intensity (L/2 FLOP/byte) exceeds the GEMV baseline (0.5 FLOP/byte). In the main experiment, mean L ≈ 3.6–4.2 on random (below the crossover) and mean L ≈ 12.4–14.6 on clustered (above it), fully accounting for the reversed MV–MM ordering observed in Table 1.
 
-![Figure 3. Microbenchmark: scan kernel throughput (ns per query per vector) as a function of L. MV is flat; MM crosses MV at L = 8.](../figures/fig_microbench.png)
+![](../figures/fig_microbench.png)
+
+*Figure 5. Microbenchmark: scan kernel throughput (ns per query per vector) as a function of L. MV is flat; MM crosses MV at L = 8.*
 
 ---
 

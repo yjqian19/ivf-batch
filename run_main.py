@@ -6,10 +6,12 @@ Set DELTA_T_MS and MAX_BATCH_SIZE based on run_sweep.py results, then run:
 """
 
 import argparse
+import json
 import time
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 
 from engine.data import read_fvecs, read_ivecs
@@ -151,6 +153,38 @@ def _vals(runs, wl, sched, key):
     return [r[wl][sched][key] for r in runs]
 
 
+def build_summary_dict(all_runs):
+    """Compute the same statistics as print_summary() and return as a plain dict."""
+    result = {}
+    for wl_key in ("random", "clustered"):
+        wl = {}
+        for sched in ("seq", "mv", "mm"):
+            qps = _vals(all_runs, wl_key, sched, "qps")
+            avg = _vals(all_runs, wl_key, sched, "avg_lat")
+            p95 = _vals(all_runs, wl_key, sched, "p95_lat")
+            p99 = _vals(all_runs, wl_key, sched, "p99_lat")
+            rec = _vals(all_runs, wl_key, sched, "recall")
+            wl[sched] = {
+                "qps_mean":     round(float(np.mean(qps)),    1),
+                "qps_std":      round(float(np.std(qps)),     1),
+                "avg_lat_mean": round(float(np.mean(avg)),    2),
+                "avg_lat_std":  round(float(np.std(avg)),     2),
+                "p95_lat_mean": round(float(np.mean(p95)),    2),
+                "p95_lat_std":  round(float(np.std(p95)),     2),
+                "p99_median":   round(float(np.median(p99)),  2),
+                "recall_mean":  round(float(np.mean(rec)),    3),
+                "recall_std":   round(float(np.std(rec)),     3),
+                "queue_ms":     round(float(np.mean(_vals(all_runs, wl_key, sched, "queue_ms"))),  2),
+                "scan_ms":      round(float(np.mean(_vals(all_runs, wl_key, sched, "scan_ms"))),   2),
+                "lists_per_q":  round(float(np.mean(_vals(all_runs, wl_key, sched, "lists_per_q"))), 2),
+                "m_mean":       round(float(np.mean(_vals(all_runs, wl_key, sched, "m_mean"))),    1),
+                "m_p50":        round(float(np.mean(_vals(all_runs, wl_key, sched, "m_p50"))),     1),
+                "m_p95":        round(float(np.mean(_vals(all_runs, wl_key, sched, "m_p95"))),     1),
+            }
+        result[wl_key] = wl
+    return result
+
+
 def print_summary(all_runs, delta_t_ms, max_bs, cl_info):
     n = len(all_runs)
     print(f"\n  Parameters: Δt={delta_t_ms}ms  MaxBS={max_bs}  ({n} runs)\n")
@@ -256,15 +290,27 @@ def main():
     section(f"Summary — mean ± std across {n_runs} runs")
     print_summary(all_runs, delta_t_ms, max_bs, cl_info)
 
+    return {
+        "params": {
+            "delta_t_ms": delta_t_ms,
+            "max_bs":     max_bs,
+            "n_runs":     n_runs,
+        },
+        "summary": build_summary_dict(all_runs),
+    }
+
 
 if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_path = f"results/main_{timestamp}.txt"
+    json_path   = f"results/main_{timestamp}.json"
     tee = Tee(result_path)
     sys.stdout = tee
     try:
-        main()
+        data = main()
     finally:
         sys.stdout = tee.stdout
         tee.close()
         print(f"\nResults saved to {result_path}")
+    Path(json_path).write_text(json.dumps(data, indent=2))
+    print(f"Structured data saved to {json_path}")

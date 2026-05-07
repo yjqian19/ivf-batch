@@ -15,10 +15,12 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 import numpy as np
 
 
@@ -116,15 +118,29 @@ def main():
     print(f"\nTheoretical AI: GEMV = 0.5 FLOP/byte (constant);  "
           f"GEMM = m/2 FLOP/byte (linear in m)")
 
+    return {
+        "n_list":      n,
+        "d":           d,
+        "repeats":     n_repeat,
+        "crossover_L": first_mm_win,
+        "rows": [
+            {"L": m, "mv_ns_per_qv": round(mv, 3), "mm_ns_per_qv": round(mm, 3), "speedup": round(sp, 3)}
+            for m, mv, mm, sp in rows
+        ],
+    }
+
 
 if __name__ == "__main__":
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     result_path = f"results/microbench_a4_{timestamp}.txt"
+    json_path   = f"results/microbench_a4_{timestamp}.json"
     tee = Tee(result_path)
     sys.stdout = tee
     try:
-        main()
+        data = main()
     finally:
         sys.stdout = tee.stdout
         tee.close()
         print(f"\nResults saved to {result_path}")
+    Path(json_path).write_text(json.dumps(data, indent=2))
+    print(f"Structured data saved to {json_path}")

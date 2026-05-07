@@ -1,39 +1,30 @@
 """Generate result figures for the final report."""
-# ── Sweep data (all 28 configurations, random & clustered) ───────────────────
-# Each row: (mv_avgbs, mv_qps, mm_qps, mv_avglat_ms, mm_avglat_ms)
-SWEEP_RANDOM = [
-    # (mv_avgbs, mv_qps, mm_qps, mv_lat, mm_lat)
-    (21.2,2098,1300,17.5,39.3),(24.2,2101,1511,20.9,60.0),(25.6,2096,1763,21.5,103.1),(24.9,2098,1984,21.0,139.9),
-    (27.5,2099,1305,20.8,36.9),(30.8,2153,1382,24.3,65.6),(31.0,2152,1730,24.7,110.4),(30.7,2154,2009,24.3,127.1),
-    (29.8,2141,1332,21.5,38.2),(44.2,2200,1401,32.9,64.4),(45.5,2204,2104,34.5,60.5),(47.4,2197,2082,36.6,62.5),
-    (31.6,2148,1304,22.3,34.8),(60.2,2230,1446,42.3,67.9),(82.6,2277,2227,60.1,70.5),(84.0,2274,2159,61.1,99.7),
-    (31.9,2150,1314,22.5,39.2),(63.3,2187,1404,44.7,61.0),(119.0,2232,1742,85.2,109.5),(147.1,2296,2155,107.9,161.0),
-    (31.9,2098,1377,22.9,34.6),(63.7,2182,1438,44.9,65.4),(125.0,2244,2062,87.9,92.9),(222.2,2322,2562,160.8,115.6),
-    (31.9,2129,1813,22.7,26.3),(63.7,2202,1620,44.7,57.1),(126.6,2243,2010,88.5,95.1),(250.0,2264,2316,174.8,171.9),
-]
-SWEEP_CLUSTERED = [
-    (30.5,1987,1884),(55.2,1965,2097),(86.2,1957,2061),(106.4,1969,2060),
-    (31.4,1945,1959),(60.2,1944,2083),(97.1,1964,2098),(142.9,1954,2102),
-    (31.7,1945,1995),(61.7,1951,2315),(108.7,1950,2310),(161.3,1952,2220),
-    (31.8,1943,2094),(62.9,1934,2156),(120.5,1952,2324),(200.0,1983,2300),
-    (31.9,1988,2082),(63.3,1992,2347),(123.5,2006,2564),(217.4,2024,2520),
-    (31.9,1981,2060),(63.7,1951,2265),(125.0,1931,2359),(238.1,1948,2424),
-    (31.9,1939,2146),(63.7,1949,2251),(126.6,1938,2285),(250.0,1952,2303),
-]
-# Selected 4 rows per workload (from Tables 4 & 5)
-SEL_RANDOM    = [(21.2,2098,1300),(60.2,2230,1446),(82.6,2277,2227),(222.2,2322,2562)]
-SEL_CLUSTERED = [(30.5,1987,1884),(62.9,1934,2156),(120.5,1952,2324),(238.1,1948,2424)]
 
-import numpy as np
+import json
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+from matplotlib.lines import Line2D
+from pathlib import Path
+
+_results = Path("results")
+
+
+def _latest(pattern):
+    files = sorted(_results.glob(pattern))
+    if not files:
+        raise FileNotFoundError(f"No files matching results/{pattern}")
+    return json.loads(files[-1].read_text())
+
+
+MICRO = _latest("microbench_a4_*.json")
+SWEEP = _latest("sweep_*.json")
+MAIN  = _latest("main_*.json")["summary"]
 
 GRAY   = "#555555"
 BLUE   = "#2166ac"
 ORANGE = "#d6604d"
-GREEN  = "#4dac26"
 
 plt.rcParams.update({
     "font.family": "sans-serif",
@@ -45,23 +36,43 @@ plt.rcParams.update({
     "grid.linestyle": "--",
 })
 
+MAIN_EXP_KEY = (5.0, 128)
+SEL_KEYS     = {(0.5, 32), (5.0, 64), (5.0, 128), (20.0, 256)}
+
+
+def _key(r):
+    return (r["dt_ms"], r["max_bs"])
+
+
+def paired_rows(mv_rows, mm_rows, keys=None):
+    """Return sorted (avg_bs, mv_qps, mm_qps) tuples, optionally filtered to a key set."""
+    mm_by = {_key(r): r for r in mm_rows}
+    result = [
+        (r["avg_bs"], r["qps"], mm_by[_key(r)]["qps"])
+        for r in mv_rows
+        if _key(r) in mm_by and (keys is None or _key(r) in keys)
+    ]
+    return sorted(result)
+
+
+def delta_pct(rows):
+    return [r[0] for r in rows], [(r[2] - r[1]) / r[1] * 100 for r in rows]
+
 
 # ── Figure 1: Microbenchmark ──────────────────────────────────────────────────
 
-L_vals = [1, 2, 4, 8, 16, 32, 64, 128, 256]
-mv     = [5.515, 5.474, 5.279, 5.214, 5.154, 5.127, 5.178, 5.124, 5.114]
-mm     = [5.583, 15.852, 7.961, 4.016, 3.009, 1.508, 1.425, 1.417, 1.355]
+L_vals = [r["L"]            for r in MICRO["rows"]]
+mv     = [r["mv_ns_per_qv"] for r in MICRO["rows"]]
+mm     = [r["mm_ns_per_qv"] for r in MICRO["rows"]]
+
+crossover = next(L for L, m, g in zip(L_vals, mv, mm) if g < m)
 
 fig, ax = plt.subplots(figsize=(6, 4))
-
-ax.plot(L_vals, mv, color=BLUE,   marker="o", linewidth=2,
-        markersize=6, label="Batch(MV)")
-ax.plot(L_vals, mm, color=ORANGE, marker="s", linewidth=2,
-        markersize=6, label="Batch(MM)")
-
-ax.axvline(x=8, color=GRAY, linestyle=":", linewidth=1.5, alpha=0.8)
-ax.text(8.5, 14, "crossover\nL = 8", color=GRAY, fontsize=9, va="top")
-
+ax.plot(L_vals, mv, color=BLUE,   marker="o", linewidth=2, markersize=6, label="Batch(MV)")
+ax.plot(L_vals, mm, color=ORANGE, marker="s", linewidth=2, markersize=6, label="Batch(MM)")
+ax.axvline(x=crossover, color=GRAY, linestyle=":", linewidth=1.5, alpha=0.8)
+ax.text(crossover * 1.15, max(mm) * 0.88, f"crossover\nL = {crossover}",
+        color=GRAY, fontsize=9, va="top")
 ax.set_xscale("log", base=2)
 ax.set_xticks(L_vals)
 ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
@@ -70,7 +81,6 @@ ax.set_ylabel("ns / (query × vector)  [lower is better]")
 ax.set_title("Microbenchmark: Scan Kernel Throughput vs L", fontsize=12)
 ax.legend()
 ax.set_ylim(bottom=0)
-
 plt.tight_layout()
 plt.savefig("figures/fig_microbench.png", dpi=150)
 plt.close()
@@ -79,47 +89,42 @@ print("Saved figures/fig_microbench.png")
 
 # ── Figure 2: Parameter Sweep ─────────────────────────────────────────────────
 
-def delta_pct(rows):
-    xs = [r[0] for r in rows]
-    ys = [(r[2] - r[1]) / r[1] * 100 for r in rows]
-    return xs, ys
+all_r = paired_rows(SWEEP["random_mv"],    SWEEP["random_mm"])
+all_c = paired_rows(SWEEP["clustered_mv"], SWEEP["clustered_mm"])
+sel_r = paired_rows(SWEEP["random_mv"],    SWEEP["random_mm"],    SEL_KEYS)
+sel_c = paired_rows(SWEEP["clustered_mv"], SWEEP["clustered_mm"], SEL_KEYS)
+
+main_r = paired_rows(SWEEP["random_mv"],    SWEEP["random_mm"],    {MAIN_EXP_KEY})[0]
+main_c = paired_rows(SWEEP["clustered_mv"], SWEEP["clustered_mm"], {MAIN_EXP_KEY})[0]
+mrx, mry = main_r[0], (main_r[2] - main_r[1]) / main_r[1] * 100
+mcx, mcy = main_c[0], (main_c[2] - main_c[1]) / main_c[1] * 100
 
 fig, ax = plt.subplots(figsize=(7, 4.5))
-
-# All sweep points — faint background
-xs_r, ys_r = delta_pct(SWEEP_RANDOM)
-xs_c, ys_c = delta_pct(SWEEP_CLUSTERED)
+xs_r, ys_r = delta_pct(all_r)
+xs_c, ys_c = delta_pct(all_c)
 ax.scatter(xs_r, ys_r, color=BLUE,   alpha=0.20, s=25, zorder=2)
 ax.scatter(xs_c, ys_c, color=ORANGE, alpha=0.20, s=25, zorder=2)
-
-# Selected rows — highlighted lines with markers
-sx_r, sy_r = delta_pct(SEL_RANDOM)
-sx_c, sy_c = delta_pct(SEL_CLUSTERED)
-ax.plot(sx_r, sy_r, color=BLUE,   marker="o", linewidth=2,
-        markersize=8, label="Random",    zorder=4)
-ax.plot(sx_c, sy_c, color=ORANGE, marker="s", linewidth=2,
-        markersize=8, label="Clustered", zorder=4)
-
-# Mark main-experiment point (Δt=5ms, MaxBS=128)
-ax.scatter([82.6],  [-2.2], color=BLUE,   s=120, zorder=5,
-           edgecolors="white", linewidths=1.5)
-ax.scatter([120.5], [19.1], color=ORANGE, s=120, zorder=5,
-           edgecolors="white", linewidths=1.5, marker="s")
-ax.annotate("main exp.", xy=(82.6, -2.2),  xytext=(95, -12),
-            fontsize=8.5, color=GRAY,
-            arrowprops=dict(arrowstyle="->", color=GRAY, lw=1))
-ax.annotate("main exp.", xy=(120.5, 19.1), xytext=(135, 10),
-            fontsize=8.5, color=GRAY,
-            arrowprops=dict(arrowstyle="->", color=GRAY, lw=1))
-
+sx_r, sy_r = delta_pct(sel_r)
+sx_c, sy_c = delta_pct(sel_c)
+ax.plot(sx_r, sy_r, color=BLUE,   marker="o", linewidth=2, markersize=8, label="Random",    zorder=4)
+ax.plot(sx_c, sy_c, color=ORANGE, marker="s", linewidth=2, markersize=8, label="Clustered", zorder=4)
+ax.scatter([mrx], [mry], color=BLUE,   s=120, zorder=5, edgecolors="white", linewidths=1.5)
+ax.scatter([mcx], [mcy], color=ORANGE, s=120, zorder=5, edgecolors="white", linewidths=1.5, marker="s")
+ax.annotate("main exp.", xy=(mrx, mry), xytext=(mrx + 12, mry - 10),
+            fontsize=8.5, color=GRAY, arrowprops=dict(arrowstyle="->", color=GRAY, lw=1))
+ax.annotate("main exp.", xy=(mcx, mcy), xytext=(mcx + 12, mcy - 8),
+            fontsize=8.5, color=GRAY, arrowprops=dict(arrowstyle="->", color=GRAY, lw=1))
 ax.axhline(0, color=GRAY, linestyle="--", linewidth=1.2, alpha=0.7)
-ax.text(255, 1.5, "breakeven", color=GRAY, fontsize=8.5, ha="right")
-
+ax.text(max(xs_r + xs_c), 1.5, "breakeven", color=GRAY, fontsize=8.5, ha="right")
 ax.set_xlabel("Average Batch Size (MV AvgBS)")
 ax.set_ylabel("Δ QPS  (MM − MV)  [%]")
 ax.set_title("Batch Size Sweep: Relative QPS of MM vs MV", fontsize=12)
-ax.legend()
-
+ax.legend(handles=[
+    Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Random — selected representative"),
+    Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Clustered — selected representative"),
+    Line2D([0], [0], linestyle="none", marker="o", color=BLUE,   markersize=5, alpha=0.5, label="Random — all data points"),
+    Line2D([0], [0], linestyle="none", marker="o", color=ORANGE, markersize=5, alpha=0.5, label="Clustered — all data points"),
+], fontsize=8.5, loc="lower right")
 plt.tight_layout()
 plt.savefig("figures/fig_sweep.png", dpi=150)
 plt.close()
@@ -128,34 +133,125 @@ print("Saved figures/fig_sweep.png")
 
 # ── Figure 3: Latency vs Batch Size ──────────────────────────────────────────
 
-xs_mv  = [r[0] for r in SWEEP_RANDOM]
-lat_mv = [r[3] for r in SWEEP_RANDOM]
-lat_mm = [r[4] for r in SWEEP_RANDOM]
+mm_by   = {_key(r): r for r in SWEEP["random_mm"]}
+all_mv  = SWEEP["random_mv"]
+sel_mv  = sorted([r for r in all_mv if _key(r) in SEL_KEYS], key=lambda r: r["avg_bs"])
 
-# Selected 4 rows for highlight lines
-sel_xs   = [21.2, 60.2, 82.6, 222.2]
-sel_lmv  = [17.5, 42.3, 60.1, 160.8]
-sel_lmm  = [39.3, 67.9, 70.5, 115.6]
+xs_all      = [r["avg_bs"] for r in all_mv]
+lat_mv_all  = [r["avg_lat_ms"] for r in all_mv]
+lat_mm_all  = [mm_by[_key(r)]["avg_lat_ms"] for r in all_mv]
+
+sel_xs  = [r["avg_bs"] for r in sel_mv]
+sel_lmv = [r["avg_lat_ms"] for r in sel_mv]
+sel_lmm = [mm_by[_key(r)]["avg_lat_ms"] for r in sel_mv]
+
+seq_lat = SWEEP["sequential"]["avg_lat_ms"]
 
 fig, ax = plt.subplots(figsize=(7, 4.5))
-
-ax.scatter(xs_mv, lat_mv, color=BLUE,   alpha=0.20, s=25, zorder=2)
-ax.scatter(xs_mv, lat_mm, color=ORANGE, alpha=0.20, s=25, zorder=2)
-
-ax.plot(sel_xs, sel_lmv, color=BLUE,   marker="o", linewidth=2,
-        markersize=8, label="Batch(MV)", zorder=4)
-ax.plot(sel_xs, sel_lmm, color=ORANGE, marker="s", linewidth=2,
-        markersize=8, label="Batch(MM)", zorder=4)
-
-ax.axhline(0.5, color=GRAY, linestyle=":", linewidth=1.5, alpha=0.8)
-ax.text(255, 2, "Sequential (~0.5 ms)", color=GRAY, fontsize=8.5, ha="right")
-
+ax.scatter(xs_all, lat_mv_all, color=BLUE,   alpha=0.20, s=25, zorder=2)
+ax.scatter(xs_all, lat_mm_all, color=ORANGE, alpha=0.20, s=25, zorder=2)
+ax.plot(sel_xs, sel_lmv, color=BLUE,   marker="o", linewidth=2, markersize=8, label="Batch(MV)", zorder=4)
+ax.plot(sel_xs, sel_lmm, color=ORANGE, marker="s", linewidth=2, markersize=8, label="Batch(MM)", zorder=4)
+ax.axhline(seq_lat, color=GRAY, linestyle=":", linewidth=1.5, alpha=0.8)
+ax.text(max(xs_all), seq_lat + 2, f"Sequential (~{seq_lat:.1f} ms)",
+        color=GRAY, fontsize=8.5, ha="right")
 ax.set_xlabel("Average Batch Size (MV AvgBS)")
 ax.set_ylabel("Average Latency (ms)")
 ax.set_title("Latency Cost of Batching: Random Workload", fontsize=12)
-ax.legend()
-
+ax.legend(handles=[
+    Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Batch(MV) — selected representative"),
+    Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Batch(MM) — selected representative"),
+    Line2D([0], [0], linestyle="none", marker="o", color=BLUE,   markersize=5, alpha=0.5, label="Batch(MV) — all data points"),
+    Line2D([0], [0], linestyle="none", marker="o", color=ORANGE, markersize=5, alpha=0.5, label="Batch(MM) — all data points"),
+], fontsize=8.5)
 plt.tight_layout()
 plt.savefig("figures/fig_latency.png", dpi=150)
 plt.close()
 print("Saved figures/fig_latency.png")
+
+
+# ── Figure 4: Latency vs Batch Size — Clustered Workload ─────────────────────
+
+mm_by_c  = {_key(r): r for r in SWEEP["clustered_mm"]}
+all_mv_c = SWEEP["clustered_mv"]
+sel_mv_c = sorted([r for r in all_mv_c if _key(r) in SEL_KEYS], key=lambda r: r["avg_bs"])
+
+xs_all_c     = [r["avg_bs"] for r in all_mv_c]
+lat_mv_all_c = [r["avg_lat_ms"] for r in all_mv_c]
+lat_mm_all_c = [mm_by_c[_key(r)]["avg_lat_ms"] for r in all_mv_c]
+
+sel_xs_c  = [r["avg_bs"] for r in sel_mv_c]
+sel_lmv_c = [r["avg_lat_ms"] for r in sel_mv_c]
+sel_lmm_c = [mm_by_c[_key(r)]["avg_lat_ms"] for r in sel_mv_c]
+
+fig, ax = plt.subplots(figsize=(7, 4.5))
+ax.scatter(xs_all_c, lat_mv_all_c, color=BLUE,   alpha=0.20, s=25, zorder=2)
+ax.scatter(xs_all_c, lat_mm_all_c, color=ORANGE, alpha=0.20, s=25, zorder=2)
+ax.plot(sel_xs_c, sel_lmv_c, color=BLUE,   marker="o", linewidth=2, markersize=8, label="Batch(MV)", zorder=4)
+ax.plot(sel_xs_c, sel_lmm_c, color=ORANGE, marker="s", linewidth=2, markersize=8, label="Batch(MM)", zorder=4)
+ax.axhline(seq_lat, color=GRAY, linestyle=":", linewidth=1.5, alpha=0.8)
+ax.text(max(xs_all_c), seq_lat + 2, f"Sequential (~{seq_lat:.1f} ms)",
+        color=GRAY, fontsize=8.5, ha="right")
+ax.set_xlabel("Average Batch Size (MV AvgBS)")
+ax.set_ylabel("Average Latency (ms)")
+ax.set_title("Latency Cost of Batching: Clustered Workload", fontsize=12)
+ax.legend(handles=[
+    Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Batch(MV) — selected representative"),
+    Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Batch(MM) — selected representative"),
+    Line2D([0], [0], linestyle="none", marker="o", color=BLUE,   markersize=5, alpha=0.5, label="Batch(MV) — all data points"),
+    Line2D([0], [0], linestyle="none", marker="o", color=ORANGE, markersize=5, alpha=0.5, label="Batch(MM) — all data points"),
+], fontsize=8.5)
+plt.tight_layout()
+plt.savefig("figures/fig_latency_clustered.png", dpi=150)
+plt.close()
+print("Saved figures/fig_latency_clustered.png")
+
+
+# ── Figures 5 & 6: Performance Overview (QPS and Latency) ────────────────────
+
+schedulers  = ["Sequential", "Batch(MV)", "Batch(MM)"]
+sched_keys  = ["seq", "mv", "mm"]
+x           = range(len(schedulers))
+
+rand_qps  = [MAIN["random"][k]["qps_mean"]     for k in sched_keys]
+clus_qps  = [MAIN["clustered"][k]["qps_mean"]  for k in sched_keys]
+rand_lat  = [MAIN["random"][k]["avg_lat_mean"]  for k in sched_keys]
+clus_lat  = [MAIN["clustered"][k]["avg_lat_mean"] for k in sched_keys]
+
+# Figure 5: QPS overview
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(x, rand_qps, color=BLUE,   marker="o", linewidth=2, markersize=8, label="Random")
+ax.plot(x, clus_qps, color=ORANGE, marker="s", linewidth=2, markersize=8, label="Clustered")
+for xi, y in zip(x, rand_qps):
+    ax.text(xi, y + 25, f"{y:.0f}", ha="center", va="bottom", fontsize=8.5, color=BLUE)
+for xi, y in zip(x, clus_qps):
+    ax.text(xi, y - 55, f"{y:.0f}", ha="center", va="top",    fontsize=8.5, color=ORANGE)
+ax.set_xticks(x)
+ax.set_xticklabels(schedulers)
+ax.set_ylabel("Throughput (QPS)")
+ax.set_title("Performance Overview: Throughput", fontsize=12)
+ax.legend()
+ax.set_ylim(bottom=0)
+plt.tight_layout()
+plt.savefig("figures/fig_overview_qps.png", dpi=150)
+plt.close()
+print("Saved figures/fig_overview_qps.png")
+
+# Figure 6: Latency overview
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.plot(x, rand_lat, color=BLUE,   marker="o", linewidth=2, markersize=8, label="Random")
+ax.plot(x, clus_lat, color=ORANGE, marker="s", linewidth=2, markersize=8, label="Clustered")
+for xi, y in zip(x, rand_lat):
+    ax.text(xi, y + 1.5, f"{y:.1f}", ha="center", va="bottom", fontsize=8.5, color=BLUE)
+for xi, y in zip(x, clus_lat):
+    ax.text(xi, y - 3,   f"{y:.1f}", ha="center", va="top",    fontsize=8.5, color=ORANGE)
+ax.set_xticks(x)
+ax.set_xticklabels(schedulers)
+ax.set_ylabel("Average Latency (ms)")
+ax.set_title("Performance Overview: Latency", fontsize=12)
+ax.legend()
+ax.set_ylim(bottom=0)
+plt.tight_layout()
+plt.savefig("figures/fig_overview_latency.png", dpi=150)
+plt.close()
+print("Saved figures/fig_overview_latency.png")
