@@ -78,7 +78,6 @@ ax.set_xticks(L_vals)
 ax.get_xaxis().set_major_formatter(ticker.ScalarFormatter())
 ax.set_xlabel("L  (queries per list per batch)")
 ax.set_ylabel("ns / (query × vector)  [lower is better]")
-ax.set_title("Microbenchmark: Scan Kernel Throughput vs L", fontsize=12)
 ax.legend()
 ax.set_ylim(bottom=0)
 plt.tight_layout()
@@ -118,7 +117,6 @@ ax.axhline(0, color=GRAY, linestyle="--", linewidth=1.2, alpha=0.7)
 ax.text(max(xs_r + xs_c), 1.5, "breakeven", color=GRAY, fontsize=8.5, ha="right")
 ax.set_xlabel("Average Batch Size (MV AvgBS)")
 ax.set_ylabel("Δ QPS  (MM − MV)  [%]")
-ax.set_title("Batch Size Sweep: Relative QPS of MM vs MV", fontsize=12)
 ax.legend(handles=[
     Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Random — selected representative"),
     Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Clustered — selected representative"),
@@ -157,7 +155,6 @@ ax.text(max(xs_all), seq_lat + 2, f"Sequential (~{seq_lat:.1f} ms)",
         color=GRAY, fontsize=8.5, ha="right")
 ax.set_xlabel("Average Batch Size (MV AvgBS)")
 ax.set_ylabel("Average Latency (ms)")
-ax.set_title("Latency Cost of Batching: Random Workload", fontsize=12)
 ax.legend(handles=[
     Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Batch(MV) — selected representative"),
     Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Batch(MM) — selected representative"),
@@ -194,7 +191,6 @@ ax.text(max(xs_all_c), seq_lat + 2, f"Sequential (~{seq_lat:.1f} ms)",
         color=GRAY, fontsize=8.5, ha="right")
 ax.set_xlabel("Average Batch Size (MV AvgBS)")
 ax.set_ylabel("Average Latency (ms)")
-ax.set_title("Latency Cost of Batching: Clustered Workload", fontsize=12)
 ax.legend(handles=[
     Line2D([0], [0], color=BLUE,   marker="o", linewidth=2, markersize=7, label="Batch(MV) — selected representative"),
     Line2D([0], [0], color=ORANGE, marker="s", linewidth=2, markersize=7, label="Batch(MM) — selected representative"),
@@ -229,7 +225,6 @@ for xi, y in zip(x, clus_qps):
 ax.set_xticks(x)
 ax.set_xticklabels(schedulers)
 ax.set_ylabel("Throughput (QPS)")
-ax.set_title("Performance Overview: Throughput", fontsize=12)
 ax.legend()
 ax.set_ylim(bottom=0)
 plt.tight_layout()
@@ -248,7 +243,6 @@ for xi, y in zip(x, clus_lat):
 ax.set_xticks(x)
 ax.set_xticklabels(schedulers)
 ax.set_ylabel("Average Latency (ms)")
-ax.set_title("Performance Overview: Latency", fontsize=12)
 ax.legend()
 ax.set_ylim(bottom=0)
 plt.tight_layout()
