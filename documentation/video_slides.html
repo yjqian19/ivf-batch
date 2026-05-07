@@ -682,95 +682,83 @@
 </div>
 
 <script>
+// Speaker notes — sized for a 5–6 minute pitch (~340 s total).
+// Content drawn strictly from documentation/latex/final_report_acm.pdf.
 const NOTES = {
   "title": {
     who: "Yujia",
-    timing: "≈ 10 s",
-    speech: "We're Yujia and Xiangyu. Our project studies how query scheduling, separate from the index itself, affects throughput in vector search."
+    timing: "≈ 8 s",
+    speech: "We're Yujia and Xiangyu. Our project asks whether throughput in IVF-based vector search can be improved by reorganizing how concurrent queries are executed, with the index left unchanged."
   },
   "vector-search": {
     who: "Yujia",
-    timing: "≈ 50 s",
-    speech: "First, a quick setup and the research question. Vector search returns the k nearest database vectors to a query vector. We focus on IVF, which partitions the database into clusters and stores each cluster as an inverted list. At query time, the engine finds the nearest centroids, scans only those lists, and returns the top-10.\n\nOur approach is simple: keep the IVF index fixed, preserve recall, and change only runtime query scheduling. The question is whether, when many queries arrive concurrently, batching and reordering list scans can improve throughput.",
-    review: "Keep this as a compressed introduction. The audience needs inverted lists, fixed index, and the research question."
+    timing: "≈ 28 s",
+    speech: "Vector search returns the k nearest database vectors to a query. IVF partitions the vector space into clusters, each maintaining an inverted list. To answer a query, the engine identifies the nearest centroids and scans only those lists.\n\nMost prior work optimizes the index. We instead take the index as fixed and ask: when many queries are processed together, can we exploit overlap in the lists they probe to improve throughput?"
   },
   "engine": {
     who: "Yujia",
-    timing: "≈ 25 s",
-    speech: "Now the system design. The reason we need a custom engine is reuse. Faiss gives us the IVF index, but its search API processes queries independently. If two queries scan the same inverted list, the library interface does not let us load that list once and reuse it across both queries.\n\nSo our custom engine keeps the same index, but separates centroid lookup from list scanning. That exposes enough control for the scheduler to group queries by list and reuse list loads.",
-    review: "The key point is not custom code for its own sake. It is that Faiss's query-by-query interface hides the reuse opportunity."
+    timing: "≈ 20 s",
+    speech: "About the engine. Faiss's search is a stateless black box that processes each query independently, so cross-query optimizations are invisible. We use Faiss for centroid training but replace the search call with a custom single-threaded implementation that exposes centroid lookup and list scanning as separate interfaces, giving the scheduler direct control over execution order and batch composition."
   },
   "insight": {
     who: "Yujia",
-    timing: "≈ 45 s",
-    speech: "This is the per-list batch scan. When queries arrive close in time, many probe overlapping inverted lists. Sequential execution loads the same list once per query. Batch execution groups queries by cluster list: choose a cluster, serve every query in the batch that needs it, then move to the next cluster. In the example, C3 serves q1, q2, and q3 together, so its L is 3. C7 serves two queries, so L is 2. C11 also has L equal to 3.\n\nThe variable we track is L, the per-list sharing query count. Sequential always has L equal to 1, while batching can make L larger.",
-    review: "Most important slide of the deck. Keep the explanation tied to L, because L becomes the through-line for results."
-  },
-  "schedulers": {
-    who: "Xiangyu",
-    timing: "≈ 50 s",
-    speech: "With those pieces in mind, we compare three schedulers on the same index, following the final report's Table 1. Sequential is the baseline: single-query GEMV per list, with no batching. Batch(MV) uses time-window batching, but still scans each list with per-query GEMV. Batch(MM) uses the same batching policy, but scans each list with GEMM across the queries sharing that list.",
-    review: "Dual-trigger flush: without Δt, low load = unbounded wait; without MaxBS, high load = oversized batch. Both bounds needed."
+    timing: "≈ 28 s",
+    speech: "This is the per-list batch scan. When a batch is dispatched together, multiple queries often probe the same list. We iterate list-major: for each list, distances are computed for all queries that probe it, then we move on. Each list is loaded from memory exactly once per batch.\n\nWe define L as the number of queries within a batch that probe the same list. Under sequential execution L equals one; under batching, L grows with batch size and workload locality."
   },
   "mv-mm": {
     who: "Xiangyu",
-    timing: "≈ 30 s",
-    speech: "Now we keep using the same C3 example. C3 has three queries: q1, q2, and q3. Batch(MV) scans C3 once per query, so it runs three matrix-vector products. This is simple and low overhead.\n\nBatch(MM) stacks q1, q2, and q3 into one matrix and scans C3 once with a matrix-matrix product. That lets each loaded vector from C3 be reused across the three queries. This is why MM becomes attractive when the per-list sharing count is high.",
-    review: "Keep this slide simple. Do not spend time on arithmetic intensity here; the microbenchmark will justify the crossover later."
+    timing: "≈ 24 s",
+    speech: "Two scan modes. Batch(MV) computes distances for each of the L queries with a separate matrix-vector multiply — arithmetic intensity is fixed at 0.5 FLOP per byte. Batch(MM) stacks the L queries into a matrix and runs one matrix-matrix multiply — arithmetic intensity scales as L over 2, so MM gets more efficient as L grows. But GEMM has non-trivial setup overhead at small L."
+  },
+  "schedulers": {
+    who: "Xiangyu",
+    timing: "≈ 20 s",
+    speech: "Three schedulers on the same index. Sequential — single-query GEMV per list, no batching. Batch(MV) and Batch(MM) both use time-window batching with a dual trigger: flush when delta-t reaches 5 milliseconds, or when batch size reaches 128, whichever comes first. The dual trigger bounds both waiting time at low load and memory pressure at high load."
   },
   "setup": {
     who: "Xiangyu",
-    timing: "≈ 30 s",
-    speech: "For experiment setup, we use SIFT1M: one million 128-dimensional vectors, 10,000 test queries, and ground truth for recall. The index has 256 clusters, nprobe is 8, and k is 10. Everything runs single-threaded on an M3 Pro so we isolate scheduling from multicore parallelism.\n\nWe test two 10,000-query workloads. Random uses the original SIFT test queries, which gives low list sharing. Clustered uses arrivals concentrated around high-frequency centroids, which creates high list sharing.",
-    review: "Why 2,000 QPS? Around the saturation point of Sequential — gives batching headroom. Anticipated question: 'is sorted-and-tiled clustered cheating?' Answer: it deliberately maximizes L to test the favorable regime; the random workload is the adversarial counterpart."
+    timing: "≈ 22 s",
+    speech: "Setup. SIFT1M — one million 128-dimensional vectors, L2 distance, 10,000 held-out test queries with precomputed ground truth. 256 clusters, nprobe 8, k 10. Apple M3 Pro with 18 GB unified memory, single-threaded throughout to isolate scheduling from multi-core parallelism. Arrivals are simulated at 2,000 QPS."
   },
   "protocol": {
     who: "Xiangyu",
-    timing: "≈ 35 s",
-    speech: "The protocol is organized around four research questions. First, does batching improve throughput over sequential execution? Second, how does MV versus MM depend on the workload? Third, how does batch size affect performance? And fourth, what mechanism explains the MV-MM trade-off?\n\nWe answer RQ1 and RQ2 with the fixed-parameter main experiment. RQ3 is the batch size parameter sweep. RQ4 is the microbenchmark that isolates the kernels as L changes. Across the scheduler comparisons, recall is held identical within each workload.",
-    review: "This slide sets up the result order: main experiment, sweep, microbenchmark."
+    timing: "≈ 22 s",
+    speech: "Two workloads. Random uses the SIFT test queries in their original order, with largely disjoint lists — an adversarial case for batching. Clustered filters to the 10 most-queried centroids, sorted and tiled to 10,000 arrivals to maximize L per batch. Four research questions answered by three experiments: a fixed-parameter main run, a batch-size sweep, and a kernel microbenchmark."
   },
   "main-overview": {
     who: "Xiangyu",
-    timing: "≈ 40 s",
-    speech: "Here's the main result. Two workloads, three schedulers each. The two MV–MM lines cross between workloads. On random queries, Batch(MV) is the winner, +19% over Sequential, while Batch(MM) actually regresses 3%. On clustered queries, the order flips: Batch(MM) wins by 40% over Sequential, and notably also beats Batch(MV) by 19%. Same index, same recall — the only thing that changed is how queries are scheduled and which kernel runs.",
-    review: "The cross-over between random-favors-MV and clustered-favors-MM is the headline of the project."
+    timing: "≈ 25 s",
+    speech: "Main result. The MV and MM lines cross between workloads — this is the central finding. On random, Batch(MV) leads at plus 19 percent over Sequential, while Batch(MM) regresses 3 percent. On clustered, Batch(MM) leads at plus 40 percent over Sequential. Same index, same recall — only execution order and kernel changed."
   },
   "main-table": {
     who: "Xiangyu",
-    timing: "≈ 55 s",
-    speech: "The numbers behind that figure. On random, observed L averages 3.6 to 4.2. Batch(MV) at 2,202 QPS beats Sequential's 1,854. Batch(MM) at 1,791 falls below Sequential — at this small L, GEMM overhead is not amortized.\n\nOn clustered, observed L jumps to 12.4–14.6. Batch(MM) at 2,303 wins on both throughput and average latency — 58 ms versus MV's 96 ms. That latency win is interesting: both pay the same time-window queueing delay, but MM's faster scan drains the queue earlier, so total response time drops.\n\nRecall is identical across all schedulers within each workload, so this is a clean throughput comparison.",
-    review: "This is the only result slide where we discuss latency. After this, keep the focus on MV vs MM and list sharing."
+    timing: "≈ 32 s",
+    speech: "The numbers. On random, observed L averages 3.6 to 4.2. Batch(MV) reaches 2,202 QPS; Batch(MM) at 1,791 falls below Sequential because GEMM overhead isn't amortized. On clustered, L jumps to 12 to 15. Batch(MM) at 2,303 QPS wins, with average latency 58 ms versus MV's 96 ms — its faster execution drains the queue sooner. Recall@10 is identical across schedulers within each workload."
   },
   "list-sharing": {
     who: "Xiangyu",
-    timing: "≈ 40 s",
-    speech: "Table 3 explains why the winner flips. Sequential always scans 8 lists per query, and L is always 1. With batching, list-major execution reduces the number of unique list loads per query, and L measures how many queries share each loaded list.\n\nOn random, batching helps because lists per query fall from 8 to roughly 2, but mean L is still only around 4. That is not enough for MM to consistently beat MV. On clustered, the list reuse is much stronger: lists per query drops below 1, and mean L rises to around 13. That gives MM enough reuse inside each list scan, so the winner changes.",
-    review: "This is the bridge from main result to mechanism. Make clear that L is observed from execution, not a changed index parameter."
+    timing: "≈ 22 s",
+    speech: "Why the flip. Sequential always loads 8 lists per query with L equal to one. On random, batching cuts unique list loads per query to 2.23 — about 3.6 times reduction — but mean L is only around 4. On clustered, list loads drop to 0.55 per query and mean L reaches 12 to 15. That's the regime where MM's reuse pays off."
   },
   "sweep": {
     who: "Xiangyu",
-    timing: "≈ 50 s",
-    speech: "The second result section is the batch size parameter sweep. The main experiment fixed delta t at 5 milliseconds and MaxBS at 128, but here we vary both knobs.\n\nThe main pattern is performance first: on random queries, MM starts far behind MV at small batches, then catches up and crosses at the largest selected setting. On clustered queries, MM is already competitive at small batches and grows to a clear lead. Larger batches therefore can make MM surpass MV by increasing cross-query reuse within list scans.",
-    review: "Do not lead with L on this slide. Lead with the observed sweep pattern, then use the next slide to explain it through L."
+    timing: "≈ 24 s",
+    speech: "The batch-size parameter sweep varies both delta-t and MaxBS. On random, MM starts far behind MV at small batches and catches up as batches grow. On clustered, MM is competitive even at small batches and its lead expands. Larger batches raise L and let GEMM amortize over more cross-query reuse."
   },
   "sweep-l": {
     who: "Xiangyu",
-    timing: "≈ 45 s",
-    speech: "Now we connect the sweep back to L using the selected configurations from Tables 4 and 5. On random, the smallest batch has mean L around 1.5 to 1.7 and MM is 38 percent behind. At the main setting, L rises to roughly 3 and the gap nearly closes. At the largest selected setting, mean L is 7.3 for MV and 5.8 for MM, and MM moves 10 percent ahead.\n\nThis is why we should not treat L equal to 8 as an absolute boundary. The batch-level result depends on the full distribution of L across lists, not just the mean. Clustered starts in a different regime: even the smallest batch has mean L around 7.5 because the workload already has high list overlap. With larger batches, L rises into the 12 to 17 range and MM's lead grows from 19 to 24 percent.",
-    review: "This slide is detailed; use it only to support the previous plot. The takeaway is batch size shifts the L distribution, and mean L is not a hard threshold."
+    timing: "≈ 22 s",
+    speech: "Connecting the sweep to L. On random, the smallest batch has mean L near 1.6 and MM is 38 percent behind. At the main setting L rises to about 3 and the gap nearly closes. At the largest setting L reaches 5.8 to 7.3 and MM moves 10 percent ahead. On clustered, even the smallest batch already sits at L around 7.5, so MM trails by only 5 percent and grows to plus 24 percent."
   },
   "microbench": {
     who: "Xiangyu",
-    timing: "≈ 50 s",
-    speech: "The final result section isolates the mechanism. We benchmark the MV and MM kernels directly, with no scheduler involved, on a synthetic list of 4,000 vectors. We sweep L from 1 to 256 with 50 repetitions per point.\n\nMV is basically flat at 5.1 to 5.5 nanoseconds per query per vector, because each query is processed independently. MM starts worse at small L because of GEMM setup, then improves sharply as loaded vectors are reused across more queries. In this kernel-only benchmark, it crosses MV around L equal to 8, and by L equal to 256 it is 3.77 times faster.\n\nSo L explains the direction of the results, but L equal to 8 is not a universal cutoff for full scheduler runs. Those runs average over many lists with different L values.",
-    review: "If asked 'why not L=8 exactly in main experiment?' — main experiment averages over a distribution of L; microbench fixes L exactly. They agree on direction, not point-for-point."
+    timing: "≈ 26 s",
+    speech: "The microbenchmark isolates the kernels — no scheduler, synthetic list of 4,000 vectors, L swept from 1 to 256, 50 reps per point. MV throughput is approximately constant at 5.1 to 5.5 nanoseconds per query per vector. MM improves sharply with L, crosses the MV baseline at L equals 8, and reaches 3.77 times speedup at L equals 256. The crossover is where GEMM arithmetic intensity exceeds GEMV's."
   },
   "takeaway": {
     who: "Yujia",
-    timing: "≈ 45 s",
-    speech: "To summarize. Reordering query execution alone, with the index untouched and recall preserved exactly, gives a measurable throughput improvement. The right kernel — MV or MM — is governed by L, the per-list sharing count. On our hardware, the isolated kernel crossover is around L equal to 8, but that is a guide, not an absolute boundary, because full runs see a distribution of L values.\n\nFor practitioners, the rule of thumb is to estimate the L distribution from target QPS, batch size, and query locality. Low list sharing favors MV; high list sharing favors MM.\n\nThe natural extension is an adaptive scan that picks the kernel per batch from observed L. The open question is multi-threading — cores already amortize memory traffic, and whether scheduling still matters once you parallelize across queries is something we have not measured.\n\nThanks. Happy to take questions.",
-    review: "Strong honest closing: don't oversell. Explicitly call out single-thread limitation."
+    timing: "≈ 24 s",
+    speech: "To summarize. Time-window batching consistently outperforms sequential execution without modifying the index or compromising recall. The variable governing scan-mode choice is L: below the crossover near 8, MV is preferable; above it, MM. Gains carry a queueing latency cost that must be weighed against tail-latency requirements. Future work: an adaptive per-batch switch on observed L, and validating on multi-core. Thanks."
   }
 };
 
