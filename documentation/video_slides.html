@@ -70,6 +70,13 @@
   .tag-seq { background: var(--seq); }
   .tag-mv  { background: var(--mv); }
   .tag-mm  { background: var(--mm); }
+  .tag-l {
+    display: inline-block;
+    padding: 1px 8px; margin-right: 4px;
+    border-radius: 3px; font-size: 0.85em;
+    color: var(--accent); font-weight: 600;
+    background: #eaf2fa; border: 1px solid #b9d2ea;
+  }
 
   table {
     border-collapse: collapse; margin: 0.5em 0;
@@ -113,6 +120,8 @@
   .bucket.hit { border-color: var(--accent); background: #eaf2fa; font-weight: 600; }
 
   .listmajor { font-family: ui-monospace, monospace; font-size: 0.88em; }
+  .compact-table { font-size: 0.78em; }
+  .compact-table th, .compact-table td { padding: 0.25em 0.45em; }
 
   /* Figure embedding */
   .fig {
@@ -241,45 +250,19 @@
   </div>
 </section>
 
-<!-- Slide 2: What is vector search -->
+<!-- Slide 2: Intro -->
 <section class="slide" data-notes="vector-search">
-  <h2>What is vector search?</h2>
+  <h2>Vector search with a fixed IVF index</h2>
   <p class="lead">
-    Items (text, images, products) are encoded as high-dimensional vectors.
-    A query is also a vector. <strong>Search</strong> = return the <em>k</em> nearest items
-    under L2 or cosine distance.
+    Vector search returns the <em>k</em> nearest database vectors to a query vector.
+    IVF makes this efficient by scanning only a small set of inverted lists;
+    our question is whether runtime scheduling can make those scans faster.
   </p>
-
-  <div class="diagram">
-    <div class="pipeline">
-      <div class="box muted">document / image</div>
-      <span class="arrow">→</span>
-      <div class="box">embedding model</div>
-      <span class="arrow">→</span>
-      <div class="box accent">128-d vector</div>
-      <span class="arrow">→</span>
-      <div class="box">database of <em>N</em> vectors</div>
-    </div>
-  </div>
-
-  <h3>Where it appears</h3>
-  <ul>
-    <li>Retrieval-augmented LLMs (RAG)</li>
-    <li>Recommendation systems</li>
-    <li>Image / product search</li>
-  </ul>
-
-  <p class="small">Exact search compares against all <em>N</em> vectors — too slow at scale, so production systems use approximate indices.</p>
-</section>
-
-<!-- Slide 3: IVF index -->
-<section class="slide" data-notes="ivf">
-  <h2>The IVF index, in one slide</h2>
 
   <div class="cols">
     <div class="col">
-      <h3>Build</h3>
-      <p>Partition base vectors into 256 clusters via k-means. Each cluster keeps an <strong>inverted list</strong> of its members.</p>
+      <h3>Build once</h3>
+      <p>Partition the database into 256 clusters. Each cluster stores its vectors in an inverted list.</p>
       <div class="bucket-row">
         <div class="bucket">list 0</div>
         <div class="bucket">list 1</div>
@@ -292,7 +275,7 @@
     <div class="col">
       <h3>Query</h3>
       <ol>
-        <li>Find 8 nearest centroids (<code>nprobe = 8</code>)</li>
+        <li>Find nearest centroids (<code>nprobe = 8</code>)</li>
         <li>Scan only those 8 lists</li>
         <li>Return top-10 (<code>k = 10</code>)</li>
       </ol>
@@ -306,136 +289,145 @@
     </div>
   </div>
 
-  <h3>Inside one list scan</h3>
-  <p>
-    Distance computation = <code>distances = vecs @ q</code> — a matrix-vector product.
-    Bandwidth-bound: load the list once, multiply once.
-  </p>
-</section>
-
-<!-- Slide 4: Question -->
-<section class="slide" data-notes="question">
-  <h2>Most prior work optimizes the index. We don't.</h2>
-
-  <div class="cols">
-    <div class="col">
-      <h3>What others do</h3>
-      <ul>
-        <li>Better quantization (PQ, OPQ)</li>
-        <li>Graph indices (HNSW, NSG)</li>
-        <li>Learned partitioning</li>
-      </ul>
-    </div>
-    <div class="col">
-      <h3>What we do</h3>
-      <ul>
-        <li>Keep the IVF index <strong>untouched</strong></li>
-        <li>Single thread, fixed parameters</li>
-        <li>Vary only <strong>how queries are scheduled</strong></li>
-      </ul>
-    </div>
-  </div>
-
   <hr class="rule">
 
+  <h3>Approach</h3>
+  <p>
+    Common work changes the index structure. We keep the IVF index fixed,
+    preserve Recall@10, and change only runtime query scheduling.
+  </p>
+
+  <h3>Question</h3>
+
   <p class="lead">
-    <strong>Question:</strong> when many queries arrive concurrently, can we improve throughput
-    just by reordering the way they execute?
+    When many queries arrive concurrently, can batching and reordering
+    list scans improve throughput?
   </p>
 </section>
 
-<!-- Slide 5: Custom engine -->
+<!-- Slide 3: System design -->
 <section class="slide" data-notes="engine">
-  <h2>Why we built our own engine</h2>
+  <h2>Engine: make list reuse expressible</h2>
 
   <div class="cols">
     <div class="col">
-      <h3>Faiss <code>index.search(Q)</code></h3>
+      <h3>Faiss search API</h3>
       <ul>
-        <li>Stateless black box</li>
-        <li>Each query handled independently</li>
-        <li>Cross-query optimizations <strong>not expressible</strong></li>
+        <li><code>index.search()</code> processes queries independently</li>
+        <li>Execution is query-by-query</li>
+        <li>Shared inverted lists are reloaded across queries</li>
       </ul>
     </div>
     <div class="col">
-      <h3>Our engine</h3>
+      <h3>Custom search engine</h3>
       <ul>
-        <li>Faiss only trains centroids</li>
-        <li>Search replaced with custom code</li>
-        <li>Exposes <code>centroid_lookup</code> and <code>scan_list</code> as separate calls</li>
-        <li>Scheduler decides which queries hit which list, when</li>
+        <li>Uses the same fixed IVF index</li>
+        <li>Separates centroid lookup from list scanning</li>
+        <li>Lets the scheduler group queries by list and reuse list loads</li>
       </ul>
     </div>
   </div>
 
-  <p class="small">Validated against Faiss for identical Recall@10 before any scheduling experiments.</p>
+  <p class="lead">
+    The goal is not to change the index; it is to expose enough control to reuse work across concurrent queries.
+  </p>
+  <p class="small">Validated against Faiss before scheduler experiments; Recall@10 is identical across schedulers within each workload.</p>
 </section>
 
-<!-- Slide 6: Key insight -->
+<!-- Slide 4: Key insight -->
 <section class="slide" data-notes="insight">
-  <h2>Key observation: queries that arrive together share lists</h2>
+  <h2>Per-list batch scan: load each list once per batch</h2>
 
   <div class="cols">
     <div class="col">
       <h3>Sequential — per-query order</h3>
       <p class="small">Each query loads its 8 lists independently. Same list re-loaded across queries.</p>
       <div class="listmajor">
-        q<sub>1</sub>: [<span style="color:var(--accent)">L3</span>, L7, <span style="color:var(--accent)">L11</span>, L42, …]<br>
-        q<sub>2</sub>: [<span style="color:var(--accent)">L3</span>, L19, <span style="color:var(--accent)">L11</span>, L88, …]<br>
-        q<sub>3</sub>: [<span style="color:var(--accent)">L3</span>, L7, L60, <span style="color:var(--accent)">L11</span>, …]<br>
-        <span class="small">→ <strong>L3 loaded 3×, L11 loaded 3×</strong></span>
+        q<sub>1</sub>: [<span style="color:var(--accent)">C3</span>, C7, <span style="color:var(--accent)">C11</span>, C42, …]<br>
+        q<sub>2</sub>: [<span style="color:var(--accent)">C3</span>, C19, <span style="color:var(--accent)">C11</span>, C88, …]<br>
+        q<sub>3</sub>: [<span style="color:var(--accent)">C3</span>, C7, C60, <span style="color:var(--accent)">C11</span>, …]<br>
+        <span class="small">→ <strong>C3 loaded 3×, C11 loaded 3×</strong></span>
       </div>
     </div>
     <div class="col">
-      <h3>List-major — reorder by list</h3>
+      <h3>Batch — group by cluster</h3>
       <p class="small">Pick a list, serve every query that needs it, move on.</p>
       <div class="listmajor">
-        L3:  [q<sub>1</sub>, q<sub>2</sub>, q<sub>3</sub>] →
-              <span class="tag-mm">load once</span><br>
-        L7:  [q<sub>1</sub>, q<sub>3</sub>] →
-              <span class="tag-mm">load once</span><br>
-        L11: [q<sub>1</sub>, q<sub>2</sub>, q<sub>3</sub>] →
-              <span class="tag-mm">load once</span><br>
+        C3:  [q<sub>1</sub>, q<sub>2</sub>, q<sub>3</sub>] →
+              <span class="tag-l">L = 3</span> <span class="tag-mm">load once</span><br>
+        C7:  [q<sub>1</sub>, q<sub>3</sub>] →
+              <span class="tag-l">L = 2</span> <span class="tag-mm">load once</span><br>
+        C11: [q<sub>1</sub>, q<sub>2</sub>, q<sub>3</sub>] →
+              <span class="tag-l">L = 3</span> <span class="tag-mm">load once</span><br>
         <span class="small">→ <strong>same arithmetic, less memory traffic</strong></span>
       </div>
     </div>
   </div>
 
   <hr class="rule">
-  <p class="lead">This is the lever the schedulers in the next slides exploit.</p>
+  <p class="lead">
+    <code>L</code> = per-list sharing query count.
+    For example, cluster <code>C3</code> has <code>L = 3</code> here.
+  </p>
 </section>
 
-<!-- Slide 7: Three schedulers -->
+<!-- Slide 5: MV vs MM -->
+<section class="slide" data-notes="mv-mm">
+  <h2>Scan modes: MV and MM</h2>
+
+  <p class="lead">
+    Continue the batch example: for <code>C3: [q1, q2, q3]</code>, the scan can run as MV or MM.
+  </p>
+
+  <div class="cols">
+    <div class="col">
+      <h3><span class="tag-mv">Batch(MV)</span></h3>
+      <p><code>for q in [q1, q2, q3]: vecs_C3 @ q</code></p>
+      <ul>
+        <li>Three matrix-vector scans for <code>C3</code></li>
+        <li>Simple and low overhead</li>
+        <li>Works well when few queries share a list</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3><span class="tag-mm">Batch(MM)</span></h3>
+      <p><code>vecs_C3 @ [q1 q2 q3].T</code></p>
+      <ul>
+        <li>One matrix-matrix scan for <code>C3</code></li>
+        <li>Reuses each loaded list vector across all 3 queries</li>
+        <li>Pays off when list sharing is high</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 6: Three schedulers -->
 <section class="slide" data-notes="schedulers">
   <h2>Three schedulers on the same index</h2>
 
   <table>
     <thead>
       <tr>
-        <th></th>
-        <th><span class="tag-seq">Sequential</span></th>
-        <th><span class="tag-mv">Batch(MV)</span></th>
-        <th><span class="tag-mm">Batch(MM)</span></th>
+        <th>Scheduler</th>
+        <th>Scan mode</th>
+        <th>Batching policy</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>Batching</td>
-        <td>none</td>
-        <td>time-window</td>
-        <td>time-window</td>
+        <td><span class="tag-seq">Sequential</span></td>
+        <td>Single-query GEMV per list</td>
+        <td>None</td>
       </tr>
       <tr>
-        <td>Iteration order</td>
-        <td>per-query</td>
-        <td><strong>list-major</strong></td>
-        <td><strong>list-major</strong></td>
+        <td><span class="tag-mv">Batch(MV)</span></td>
+        <td>Per-query GEMV per list</td>
+        <td>Time + batch size</td>
       </tr>
       <tr>
-        <td>Inner kernel</td>
-        <td>one GEMV per query</td>
-        <td>GEMV per query, looped</td>
-        <td>one <strong>GEMM</strong> for all queries in the list</td>
+        <td><span class="tag-mm">Batch(MM)</span></td>
+        <td>GEMM per list</td>
+        <td>Time + batch size</td>
       </tr>
     </tbody>
   </table>
@@ -446,79 +438,65 @@
     <code>Δt = 5 ms</code> or <code>batch size = 128</code>.
     Bounds wait time at low load and memory pressure at high load.
   </p>
+  <p class="small">These are the fixed parameters for the main experiment; the sweep varies both knobs later.</p>
 </section>
 
-<!-- Slide 8: MV vs MM -->
-<section class="slide" data-notes="mv-mm">
-  <h2>MV vs MM: defining the lever <code>L</code></h2>
-
-  <p class="lead">
-    <code>L</code> = number of queries sharing a list within one batch.
-  </p>
-
-  <div class="cols">
-    <div class="col">
-      <h3><span class="tag-mv">MV</span> per list</h3>
-      <p><code>for q in queries: vecs @ q</code></p>
-      <ul>
-        <li>Arithmetic intensity: <strong>0.5 FLOP/byte</strong>, constant in <code>L</code></li>
-        <li>List streamed once per query — no reuse</li>
-        <li>Time scales linearly with <code>L</code></li>
-      </ul>
-    </div>
-    <div class="col">
-      <h3><span class="tag-mm">MM</span> per list</h3>
-      <p><code>vecs @ Q.T</code></p>
-      <ul>
-        <li>Arithmetic intensity: <strong>L/2 FLOP/byte</strong>, grows with <code>L</code></li>
-        <li>Each loaded vector reused across all <code>L</code> queries</li>
-        <li>Has a fixed BLAS setup overhead — hurts at small <code>L</code></li>
-      </ul>
-    </div>
-  </div>
-
-  <hr class="rule">
-  <p>
-    Crossover point: where MM's intensity advantage overtakes its setup cost.
-    <strong>Hardware-specific — measured empirically below.</strong>
-  </p>
-  <p class="small"><code>L</code> is set by the workload, not the index. So we test both regimes.</p>
-</section>
-
-<!-- Slide 9: Setup -->
+<!-- Slide 7: Experiment setup -->
 <section class="slide" data-notes="setup">
-  <h2>Experimental setup</h2>
+  <h2>Experiment design: dataset, workload, device</h2>
 
   <div class="cols">
     <div class="col">
-      <h3>Index &amp; data</h3>
+      <h3>Dataset</h3>
       <ul>
         <li>SIFT1M — 1 M vectors, 128-d, L2</li>
+        <li>10,000 held-out test queries with ground truth</li>
         <li>256 clusters, <code>nprobe = 8</code>, <code>k = 10</code></li>
       </ul>
-      <h3>Hardware</h3>
+      <h3>Device</h3>
       <ul>
         <li>MacBook Pro M3 Pro, 18 GB</li>
         <li><strong>Single-threaded</strong> — isolates scheduling from parallelism</li>
       </ul>
     </div>
     <div class="col">
-      <h3>Workload — two regimes</h3>
+      <h3>Workloads</h3>
       <ul>
         <li>10 K queries, Poisson arrivals at 2,000 QPS</li>
         <li><strong>Random</strong>: original SIFT test queries — small <code>L</code></li>
-        <li><strong>Clustered</strong>: 791 queries from 10 most-queried centroids, sorted &amp; tiled — large <code>L</code></li>
-      </ul>
-      <h3>Protocol</h3>
-      <ul>
-        <li>5 runs, mean ± std</li>
-        <li>All schedulers achieve <strong>identical Recall@10</strong></li>
+        <li><strong>Clustered</strong>: 10 K arrivals concentrated around high-frequency centroids — large <code>L</code></li>
       </ul>
     </div>
   </div>
 </section>
 
-<!-- Slide 10: Main result figure -->
+<!-- Slide 8: Experiment protocol -->
+<section class="slide" data-notes="protocol">
+  <h2>Experiment protocol: four questions, three experiments</h2>
+
+  <div class="cols">
+    <div class="col">
+      <h3>Research questions</h3>
+      <ul>
+        <li><strong>RQ1:</strong> Does batching improve throughput over sequential?</li>
+        <li><strong>RQ2:</strong> How does MV vs MM depend on workload?</li>
+        <li><strong>RQ3:</strong> How does batch size affect performance?</li>
+        <li><strong>RQ4:</strong> What mechanism explains the MV/MM trade-off?</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3>Experiments</h3>
+      <ol>
+        <li><strong>Main experiment (RQ1, RQ2):</strong> fixed <code>Δt = 5 ms</code>, MaxBS = 128, 5 runs</li>
+        <li><strong>Batch size sweep (RQ3):</strong> vary <code>Δt</code> and MaxBS</li>
+        <li><strong>Microbenchmark (RQ4):</strong> isolate kernels as <code>L</code> changes</li>
+      </ol>
+      <p class="small">All schedulers preserve the same Recall@10 within each workload.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Slide 9: Main result figure -->
 <section class="slide" data-notes="main-overview">
   <h2>Main result — workload flips the winner</h2>
 
@@ -536,25 +514,25 @@
 
 <!-- Slide 11: Detailed table -->
 <section class="slide" data-notes="main-table">
-  <h2>Main result — numbers (5 runs, mean ± std)</h2>
+  <h2>Main experiment — numbers (5 runs, mean ± std)</h2>
 
   <h3>Random workload &nbsp;<span class="small">— observed mean L ≈ 3.6–4.2</span></h3>
   <table>
-    <thead><tr><th>Scheduler</th><th>QPS</th><th>Avg Lat (ms)</th><th>P95 Lat (ms)</th><th>Recall@10</th></tr></thead>
+    <thead><tr><th>Scheduler</th><th>QPS</th><th>Avg Lat (ms)</th><th>P95 Lat (ms)</th><th>P99 Lat (ms)</th><th>Recall@10</th></tr></thead>
     <tbody>
-      <tr><td><span class="tag-seq">Sequential</span></td><td class="num">1,854 ± 58</td><td class="num">0.54</td><td class="num">0.74</td><td class="num">0.957</td></tr>
-      <tr class="highlight"><td><span class="tag-mv">Batch(MV)</span></td><td class="num"><strong>2,202 ± 23</strong></td><td class="num">74.3</td><td class="num">106.8</td><td class="num">0.957</td></tr>
-      <tr><td><span class="tag-mm">Batch(MM)</span></td><td class="num">1,791 ± 87</td><td class="num">104.7</td><td class="num">134.6</td><td class="num">0.957</td></tr>
+      <tr><td><span class="tag-seq">Sequential</span></td><td class="num">1,854 ± 58</td><td class="num">0.54</td><td class="num">0.74</td><td class="num">0.81</td><td class="num">0.957</td></tr>
+      <tr class="highlight"><td><span class="tag-mv">Batch(MV)</span></td><td class="num"><strong>2,202 ± 23</strong></td><td class="num">74.3</td><td class="num">106.8</td><td class="num">114.7</td><td class="num">0.957</td></tr>
+      <tr><td><span class="tag-mm">Batch(MM)</span></td><td class="num">1,791 ± 87</td><td class="num">104.7</td><td class="num">134.6</td><td class="num">152.9</td><td class="num">0.957</td></tr>
     </tbody>
   </table>
 
   <h3>Clustered workload &nbsp;<span class="small">— observed mean L ≈ 12.4–14.6</span></h3>
   <table>
-    <thead><tr><th>Scheduler</th><th>QPS</th><th>Avg Lat (ms)</th><th>P95 Lat (ms)</th><th>Recall@10</th></tr></thead>
+    <thead><tr><th>Scheduler</th><th>QPS</th><th>Avg Lat (ms)</th><th>P95 Lat (ms)</th><th>P99 Lat (ms)</th><th>Recall@10</th></tr></thead>
     <tbody>
-      <tr><td><span class="tag-seq">Sequential</span></td><td class="num">1,650 ± 33</td><td class="num">0.61</td><td class="num">0.78</td><td class="num">0.981</td></tr>
-      <tr><td><span class="tag-mv">Batch(MV)</span></td><td class="num">1,933 ± 39</td><td class="num">96.2</td><td class="num">127.3</td><td class="num">0.981</td></tr>
-      <tr class="highlight"><td><span class="tag-mm">Batch(MM)</span></td><td class="num"><strong>2,303 ± 111</strong></td><td class="num">58.1</td><td class="num">87.2</td><td class="num">0.981</td></tr>
+      <tr><td><span class="tag-seq">Sequential</span></td><td class="num">1,650 ± 33</td><td class="num">0.61</td><td class="num">0.78</td><td class="num">0.88</td><td class="num">0.981</td></tr>
+      <tr><td><span class="tag-mv">Batch(MV)</span></td><td class="num">1,933 ± 39</td><td class="num">96.2</td><td class="num">127.3</td><td class="num">139.1</td><td class="num">0.981</td></tr>
+      <tr class="highlight"><td><span class="tag-mm">Batch(MM)</span></td><td class="num"><strong>2,303 ± 111</strong></td><td class="num">58.1</td><td class="num">87.2</td><td class="num">107.0</td><td class="num">0.981</td></tr>
     </tbody>
   </table>
 
@@ -564,9 +542,93 @@
   </p>
 </section>
 
-<!-- Slide 12: Microbenchmark — the core mechanism -->
+<!-- Slide 12: List sharing -->
+<section class="slide" data-notes="list-sharing">
+  <h2>Why the winner flips: list sharing <code>L</code></h2>
+
+  <p class="lead">
+    <code>L</code> is the number of queries in a batch that share one inverted list.
+    Higher <code>L</code> means more reuse inside the same list scan.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Workload</th>
+        <th>Scheduler</th>
+        <th>Lists / query</th>
+        <th><code>L</code> mean</th>
+        <th><code>L</code> P50</th>
+        <th><code>L</code> P95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Random</td><td><span class="tag-seq">Seq</span></td><td class="num">8.00</td><td class="num">1.0</td><td class="num">1</td><td class="num">1</td></tr>
+      <tr><td>Random</td><td><span class="tag-mv">MV</span></td><td class="num">2.23</td><td class="num">3.6</td><td class="num">3</td><td class="num">8</td></tr>
+      <tr><td>Random</td><td><span class="tag-mm">MM</span></td><td class="num">1.92</td><td class="num">4.2</td><td class="num">4</td><td class="num">10</td></tr>
+      <tr><td>Clustered</td><td><span class="tag-seq">Seq</span></td><td class="num">8.00</td><td class="num">1.0</td><td class="num">1</td><td class="num">1</td></tr>
+      <tr><td>Clustered</td><td><span class="tag-mv">MV</span></td><td class="num">0.55</td><td class="num">14.6</td><td class="num">5</td><td class="num">64</td></tr>
+      <tr class="highlight"><td>Clustered</td><td><span class="tag-mm">MM</span></td><td class="num">0.65</td><td class="num">12.4</td><td class="num">5</td><td class="num">52</td></tr>
+    </tbody>
+  </table>
+
+  <ul>
+    <li>Random batching reduces list loads, but mean <code>L ≈ 4</code> is still small.</li>
+    <li>Clustered batching reaches mean <code>L ≈ 13</code>, giving MM enough reuse to win.</li>
+  </ul>
+</section>
+
+<!-- Slide 13: Parameter sweep -->
+<section class="slide" data-notes="sweep">
+  <h2>Batch size sweep: larger batches let MM catch up</h2>
+
+  <div class="fig">
+    <img src="../figures/fig_sweep.png" alt="Sweep: MM vs MV across batch sizes and workloads">
+    <div class="fig-caption">Figure 2. Δt × MaxBS sweep; ΔQPS = (MM − MV) / MV.</div>
+  </div>
+
+  <ul>
+    <li><strong>Random</strong>: MM starts far behind MV at small batches, then catches up and crosses at the largest selected batch.</li>
+    <li><strong>Clustered</strong>: MM is competitive even at small batches and grows to a clear lead.</li>
+    <li>Larger batches make MM more competitive by increasing cross-query reuse within list scans.</li>
+  </ul>
+</section>
+
+<!-- Slide 14: Sweep detail -->
+<section class="slide" data-notes="sweep-l">
+  <h2>Sweep detail: batch size changes the <code>L</code> regime</h2>
+
+  <table class="compact-table">
+    <thead>
+      <tr>
+        <th>Workload</th>
+        <th>Δt</th>
+        <th>MaxBS</th>
+        <th>MV QPS</th>
+        <th>MM QPS</th>
+        <th>Mean <code>L</code> (MV / MM)</th>
+        <th>ΔQPS</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Random</td><td>0.5</td><td>32</td><td class="num">2,098</td><td class="num">1,300</td><td class="num">1.5 / 1.7</td><td class="num">−38%</td></tr>
+      <tr><td>Random</td><td>5</td><td>128</td><td class="num">2,277</td><td class="num">2,227</td><td class="num">3.1 / 3.5</td><td class="num">−2%</td></tr>
+      <tr class="highlight"><td>Random</td><td>20</td><td>256</td><td class="num">2,322</td><td class="num">2,562</td><td class="num">7.3 / 5.8</td><td class="num">+10%</td></tr>
+      <tr><td>Clustered</td><td>0.5</td><td>32</td><td class="num">1,987</td><td class="num">1,884</td><td class="num">7.5 / 7.6</td><td class="num">−5%</td></tr>
+      <tr><td>Clustered</td><td>5</td><td>128</td><td class="num">1,952</td><td class="num">2,324</td><td class="num">14.6 / 11.9</td><td class="num">+19%</td></tr>
+      <tr class="highlight"><td>Clustered</td><td>20</td><td>256</td><td class="num">1,948</td><td class="num">2,424</td><td class="num">17.8 / 17.3</td><td class="num">+24%</td></tr>
+    </tbody>
+  </table>
+
+  <p class="small">
+    Batch size shifts the <code>L</code> distribution; mean <code>L</code> is a guide, not a hard threshold.
+    A mean below 8 can still include enough high-<code>L</code> lists for MM to gain.
+  </p>
+</section>
+
+<!-- Slide 15: Microbenchmark — the core mechanism -->
 <section class="slide" data-notes="microbench">
-  <h2>Microbenchmark: <code>L</code> is the lever — crossover at <code>L = 8</code></h2>
+  <h2>Microbenchmark: isolate <code>L</code> — crossover around <code>L = 8</code></h2>
 
   <div class="fig">
     <img src="../figures/fig_microbench.png" alt="Microbench: kernel ns/(q·v) vs L">
@@ -574,30 +636,14 @@
   </div>
 
   <ul>
-    <li>MV is flat at 5.1–5.5 ns / (query · vector) — no <code>L</code> dependence</li>
-    <li>MM falls sharply with <code>L</code>: <strong>3.77×</strong> faster than MV at <code>L = 256</code></li>
-    <li>Crossover at <code>L = 8</code> matches the theoretical <code>L/2 = 0.5</code> intensity equality</li>
-    <li>Random's mean <code>L ≈ 4</code> sits <em>below</em>; clustered's <code>L ≈ 13</code> sits well <em>above</em> — fully explains Slide 11</li>
+    <li>MV is flat at 5.1–5.5 ns / (query · vector): no <code>L</code> dependence</li>
+    <li>MM improves sharply as <code>L</code> grows and reaches <strong>3.77×</strong> speedup at <code>L = 256</code></li>
+    <li>Kernel-only crossover is around <code>L = 8</code>, but batch-level results depend on the full <code>L</code> distribution</li>
+    <li>This explains both the main experiment and the sweep.</li>
   </ul>
 </section>
 
-<!-- Slide 13: Parameter sweep -->
-<section class="slide" data-notes="sweep">
-  <h2>Batch size sweep: <code>L</code> is modulated by both workload and batch size</h2>
-
-  <div class="fig">
-    <img src="../figures/fig_sweep.png" alt="Sweep: MM vs MV across batch sizes and workloads">
-    <div class="fig-caption">Figure 2. Δt × MaxBS sweep. Highlighted points = selected configs in the report.</div>
-  </div>
-
-  <ul>
-    <li><strong>Random</strong>: small batches → <code>L ≈ 1.5</code>, MM is <strong>−38%</strong>. Large batches → <code>L ≈ 7</code>, MM crosses to <strong>+10%</strong>.</li>
-    <li><strong>Clustered</strong>: even smallest batch keeps <code>L ≈ 7.5</code> at the crossover. MM lead grows monotonically to <strong>+24%</strong>.</li>
-    <li>Batch size <em>modulates</em> the gap; workload <em>determines</em> whether MM ever crosses.</li>
-  </ul>
-</section>
-
-<!-- Slide 14: Takeaway -->
+<!-- Slide 15: Takeaway -->
 <section class="slide" data-notes="takeaway">
   <h2>Takeaway and limitations</h2>
 
@@ -605,11 +651,11 @@
   <ul>
     <li>Reordering query execution alone (index untouched) gives a measurable throughput improvement, with <strong>recall preserved exactly</strong>.</li>
     <li>The right kernel — MV or MM — is governed by <code>L</code>, the per-list sharing count.</li>
-    <li>On our hardware, <strong><code>L = 8</code> is the crossover</strong>. Workload structure and batch size jointly determine which side of it we land on.</li>
+    <li>On our hardware, the kernel crossover is around <strong><code>L = 8</code></strong>, but this is a guide rather than an absolute boundary.</li>
   </ul>
 
   <h3>Practical guidance</h3>
-  <p>Estimate likely <code>L</code> from target QPS, latency budget, and query-distribution locality. Choose MV below 8, MM above.</p>
+  <p>Estimate the <code>L</code> distribution from target QPS, batch size, and query locality; use MV for low reuse and MM when list sharing is high.</p>
 
   <h3>Limitations &amp; future work</h3>
   <ul>
@@ -630,7 +676,7 @@
 </aside>
 
 <div class="chrome">
-  <div><span id="slide-num">1</span> / <span id="slide-total">14</span></div>
+  <div><span id="slide-num">1</span> / <span id="slide-total">15</span></div>
   <div>Query Scheduling in IVF · 6.5830</div>
   <div class="progress" id="progress-bar" style="width: 0%;"></div>
 </div>
@@ -644,51 +690,45 @@ const NOTES = {
   },
   "vector-search": {
     who: "Yujia",
-    timing: "≈ 45 s",
-    speech: "Some background first, since not everyone here works on this. In vector search, every item — a document, a product, an image — is represented as a high-dimensional vector produced by an embedding model. A query is also a vector, and 'search' means finding the k items whose vectors are nearest to the query, usually under L2 or cosine distance. This is the retrieval step behind retrieval-augmented LLMs, recommendation, and image search.\n\nDoing this exactly requires comparing the query against every vector in the database, which is too expensive at scale. So in practice systems use an approximate index. We work with one of the most common ones, called IVF.",
-    review: "Self-review: be able to explain (1) why exact search is too slow (O(N·d) per query), (2) what 'approximate' buys, (3) why L2 vs cosine doesn't matter for our scheduling argument."
-  },
-  "ivf": {
-    who: "Yujia",
     timing: "≈ 50 s",
-    speech: "IVF stands for inverted-file index. Base vectors are partitioned into 256 clusters using k-means, and each cluster keeps an inverted list of the vectors assigned to it. To answer a query, we find the 8 clusters whose centroids are closest to the query — that's nprobe = 8 — and only scan those 8 lists. Inside each list, the scan is a matrix-vector product between the list and the query. We take the top-10 across all scanned lists. This trades a small drop in recall for a large reduction in work.",
-    review: "Why 256 clusters? √N rule of thumb. nprobe=8 trades recall vs work; we hold it fixed across all schedulers so comparisons are fair (Recall@10 ends up identical: 0.957 random, 0.981 clustered)."
-  },
-  "question": {
-    who: "Yujia",
-    timing: "≈ 30 s",
-    speech: "Most prior work on vector-search throughput optimizes the index — better quantization, graph indices, learned partitions. We deliberately do not change the index. We keep IVF fixed, single-threaded, and ask a narrower question: when many queries arrive concurrently, can we improve throughput just by reordering the way they execute?",
-    review: "Anticipated question: 'why not just compare to HNSW?' Answer: orthogonal axis — HNSW changes the index; we change the scheduler. They could compose."
+    speech: "First, a quick setup and the research question. Vector search returns the k nearest database vectors to a query vector. We focus on IVF, which partitions the database into clusters and stores each cluster as an inverted list. At query time, the engine finds the nearest centroids, scans only those lists, and returns the top-10.\n\nOur approach is simple: keep the IVF index fixed, preserve recall, and change only runtime query scheduling. The question is whether, when many queries arrive concurrently, batching and reordering list scans can improve throughput.",
+    review: "Keep this as a compressed introduction. The audience needs inverted lists, fixed index, and the research question."
   },
   "engine": {
     who: "Yujia",
-    timing: "≈ 35 s",
-    speech: "One implementation note. We use Faiss only to train centroids, but we replaced its search routine with our own. Faiss exposes search as a stateless black box that processes each query independently, so cross-query reordering is impossible to express. Our engine separates centroid lookup from list scanning, and gives the scheduler direct control over which queries hit which list and when.",
-    review: "Validated identical Recall@10 against Faiss before any scheduling experiments. The custom engine is the *enabler*, not the optimization itself."
+    timing: "≈ 25 s",
+    speech: "Now the system design. The reason we need a custom engine is reuse. Faiss gives us the IVF index, but its search API processes queries independently. If two queries scan the same inverted list, the library interface does not let us load that list once and reuse it across both queries.\n\nSo our custom engine keeps the same index, but separates centroid lookup from list scanning. That exposes enough control for the scheduler to group queries by list and reuse list loads.",
+    review: "The key point is not custom code for its own sake. It is that Faiss's query-by-query interface hides the reuse opportunity."
   },
   "insight": {
     who: "Yujia",
     timing: "≈ 45 s",
-    speech: "Here's the observation that motivates the work. When queries arrive close in time, many of them probe overlapping clusters. If we serve them sequentially, the same inverted list gets loaded once per query that needs it. If we batch the queries and reorder execution to be list-major — pick a list, serve all queries that want it, then move on — each list is loaded only once. The arithmetic is the same; the memory traffic is much less.\n\nI'll hand over to Xiangyu to walk through how we turn this observation into schedulers.",
-    review: "Most important slide of the deck. The whole project is downstream of this insight. The L3, L7, L11 'load once' diagram is the key visual."
+    speech: "This is the per-list batch scan. When queries arrive close in time, many probe overlapping inverted lists. Sequential execution loads the same list once per query. Batch execution groups queries by cluster list: choose a cluster, serve every query in the batch that needs it, then move to the next cluster. In the example, C3 serves q1, q2, and q3 together, so its L is 3. C7 serves two queries, so L is 2. C11 also has L equal to 3.\n\nThe variable we track is L, the per-list sharing query count. Sequential always has L equal to 1, while batching can make L larger.",
+    review: "Most important slide of the deck. Keep the explanation tied to L, because L becomes the through-line for results."
   },
   "schedulers": {
     who: "Xiangyu",
     timing: "≈ 50 s",
-    speech: "We compare three schedulers on the same index. Sequential is the baseline — one query at a time, no batching. The other two batch incoming queries using a time window: flush every 5 milliseconds, or whenever the batch hits 128, whichever fires first. Both batch schedulers iterate list-major, the way we just described. The difference is the kernel inside each list. Batch(MV) loops over the queries that share a list and runs a separate matrix-vector product for each. Batch(MM) stacks those queries into a matrix and runs one matrix-matrix product for the whole list at once.",
+    speech: "With those pieces in mind, we compare three schedulers on the same index, following the final report's Table 1. Sequential is the baseline: single-query GEMV per list, with no batching. Batch(MV) uses time-window batching, but still scans each list with per-query GEMV. Batch(MM) uses the same batching policy, but scans each list with GEMM across the queries sharing that list.",
     review: "Dual-trigger flush: without Δt, low load = unbounded wait; without MaxBS, high load = oversized batch. Both bounds needed."
   },
   "mv-mm": {
     who: "Xiangyu",
-    timing: "≈ 55 s",
-    speech: "Whether matrix-matrix wins over matrix-vector depends on one variable, which we call L — the number of queries sharing a list within a batch. The two kernels differ in arithmetic intensity. MV is constant at 0.5 FLOP per byte loaded — it streams the list once per query, no reuse. MM scales as L over 2 FLOP per byte, because each loaded base vector is reused across all L queries in tiled BLAS registers.\n\nSo MM should win when L is large. But MM has a fixed setup overhead — building the query matrix, dispatching the BLAS call — that doesn't pay back at small L. Where the crossover sits is hardware-specific, and we measure it directly later.",
-    review: "Roofline framing: GEMV is bandwidth-bound, intensity O(1). GEMM intensity O(L) moves you toward compute-bound. Crossover depends on hardware (BLAS width, cache size). On M3 Pro, microbench puts it at L=8."
+    timing: "≈ 30 s",
+    speech: "Now we keep using the same C3 example. C3 has three queries: q1, q2, and q3. Batch(MV) scans C3 once per query, so it runs three matrix-vector products. This is simple and low overhead.\n\nBatch(MM) stacks q1, q2, and q3 into one matrix and scans C3 once with a matrix-matrix product. That lets each loaded vector from C3 be reused across the three queries. This is why MM becomes attractive when the per-list sharing count is high.",
+    review: "Keep this slide simple. Do not spend time on arithmetic intensity here; the microbenchmark will justify the crossover later."
   },
   "setup": {
     who: "Xiangyu",
     timing: "≈ 30 s",
-    speech: "Setup: SIFT1M, 256 clusters, nprobe = 8. Single-threaded on M3 Pro to isolate scheduling from parallelism. Queries arrive Poisson at 2,000 QPS. Random workload uses the original SIFT test queries — small L. Clustered workload filters to the 791 queries hitting the 10 most-popular centroids, sorted and tiled to 10K arrivals — large L. Both keep recall well-defined: 0.957 random, 0.981 clustered. All three schedulers hit identical recall, so throughput comparisons are fair.",
+    speech: "For experiment setup, we use SIFT1M: one million 128-dimensional vectors, 10,000 test queries, and ground truth for recall. The index has 256 clusters, nprobe is 8, and k is 10. Everything runs single-threaded on an M3 Pro so we isolate scheduling from multicore parallelism.\n\nWe test two 10,000-query workloads. Random uses the original SIFT test queries, which gives low list sharing. Clustered uses arrivals concentrated around high-frequency centroids, which creates high list sharing.",
     review: "Why 2,000 QPS? Around the saturation point of Sequential — gives batching headroom. Anticipated question: 'is sorted-and-tiled clustered cheating?' Answer: it deliberately maximizes L to test the favorable regime; the random workload is the adversarial counterpart."
+  },
+  "protocol": {
+    who: "Xiangyu",
+    timing: "≈ 35 s",
+    speech: "The protocol is organized around four research questions. First, does batching improve throughput over sequential execution? Second, how does MV versus MM depend on the workload? Third, how does batch size affect performance? And fourth, what mechanism explains the MV-MM trade-off?\n\nWe answer RQ1 and RQ2 with the fixed-parameter main experiment. RQ3 is the batch size parameter sweep. RQ4 is the microbenchmark that isolates the kernels as L changes. Across the scheduler comparisons, recall is held identical within each workload.",
+    review: "This slide sets up the result order: main experiment, sweep, microbenchmark."
   },
   "main-overview": {
     who: "Xiangyu",
@@ -700,24 +740,36 @@ const NOTES = {
     who: "Xiangyu",
     timing: "≈ 55 s",
     speech: "The numbers behind that figure. On random, observed L averages 3.6 to 4.2. Batch(MV) at 2,202 QPS beats Sequential's 1,854. Batch(MM) at 1,791 falls below Sequential — at this small L, GEMM overhead is not amortized.\n\nOn clustered, observed L jumps to 12.4–14.6. Batch(MM) at 2,303 wins on both throughput and average latency — 58 ms versus MV's 96 ms. That latency win is interesting: both pay the same time-window queueing delay, but MM's faster scan drains the queue earlier, so total response time drops.\n\nRecall is identical across all schedulers within each workload, so this is a clean throughput comparison.",
-    review: "Standard objection: 'batching adds 100ms latency, that's a deal-breaker.' Counter: depends on application; for offline / RAG batch processing it's fine. We're explicit about the trade-off in the takeaway."
+    review: "This is the only result slide where we discuss latency. After this, keep the focus on MV vs MM and list sharing."
   },
-  "microbench": {
+  "list-sharing": {
     who: "Xiangyu",
-    timing: "≈ 50 s",
-    speech: "To prove that L really is the underlying mechanism, we benchmarked the two kernels in isolation, with no scheduler involved. Synthetic list of 4,000 vectors, 50 reps per point, sweeping L from 1 to 256.\n\nMV is flat — 5.1 to 5.5 nanoseconds per query per vector across all L. No reuse, no L dependence. MM starts higher at small L because of GEMM setup, drops sharply, and crosses the MV baseline at exactly L equal to 8. By L = 256 it's 3.77 times faster than MV.\n\nThis crossover at 8 explains the main experiment perfectly. Random's L of around 4 is below the crossover — MM loses. Clustered's L of around 13 is well above — MM wins. The microbench is what makes us confident the mechanism is real, not an artifact of the scheduler.",
-    review: "If asked 'why not L=8 exactly in main experiment?' — main experiment averages over a distribution of L (varying batch composition); microbench fixes L exactly. They agree on direction, not point-for-point."
+    timing: "≈ 40 s",
+    speech: "Table 3 explains why the winner flips. Sequential always scans 8 lists per query, and L is always 1. With batching, list-major execution reduces the number of unique list loads per query, and L measures how many queries share each loaded list.\n\nOn random, batching helps because lists per query fall from 8 to roughly 2, but mean L is still only around 4. That is not enough for MM to consistently beat MV. On clustered, the list reuse is much stronger: lists per query drops below 1, and mean L rises to around 13. That gives MM enough reuse inside each list scan, so the winner changes.",
+    review: "This is the bridge from main result to mechanism. Make clear that L is observed from execution, not a changed index parameter."
   },
   "sweep": {
     who: "Xiangyu",
     timing: "≈ 50 s",
-    speech: "One more piece. The main experiment used Δt=5ms, MaxBS=128. What if we change those? We swept Δt across seven values from 0.5 to 50 ms and MaxBS across 32 to 256. Each batch size choice changes the L distribution.\n\nOn random, the smallest batches keep L around 1.5 — MM is 38% behind MV. As batches grow, L rises, the gap narrows, and at the largest config L hits 7 and MM finally crosses by 10%. The sweep traces out exactly the microbench curve.\n\nOn clustered, even the smallest batch keeps L around 7.5 because queries are pre-concentrated on the same lists. MM is at-or-above MV everywhere, growing to +24% at the largest batch.\n\nSo: batch size modulates L, but workload structure is what determines whether L ever crosses the threshold.",
-    review: "Key insight: batch size is *one* lever, workload is the *other*. Practitioners who can't change workload (most of them) must size batches to push L past 8."
+    speech: "The second result section is the batch size parameter sweep. The main experiment fixed delta t at 5 milliseconds and MaxBS at 128, but here we vary both knobs.\n\nThe main pattern is performance first: on random queries, MM starts far behind MV at small batches, then catches up and crosses at the largest selected setting. On clustered queries, MM is already competitive at small batches and grows to a clear lead. Larger batches therefore can make MM surpass MV by increasing cross-query reuse within list scans.",
+    review: "Do not lead with L on this slide. Lead with the observed sweep pattern, then use the next slide to explain it through L."
+  },
+  "sweep-l": {
+    who: "Xiangyu",
+    timing: "≈ 45 s",
+    speech: "Now we connect the sweep back to L using the selected configurations from Tables 4 and 5. On random, the smallest batch has mean L around 1.5 to 1.7 and MM is 38 percent behind. At the main setting, L rises to roughly 3 and the gap nearly closes. At the largest selected setting, mean L is 7.3 for MV and 5.8 for MM, and MM moves 10 percent ahead.\n\nThis is why we should not treat L equal to 8 as an absolute boundary. The batch-level result depends on the full distribution of L across lists, not just the mean. Clustered starts in a different regime: even the smallest batch has mean L around 7.5 because the workload already has high list overlap. With larger batches, L rises into the 12 to 17 range and MM's lead grows from 19 to 24 percent.",
+    review: "This slide is detailed; use it only to support the previous plot. The takeaway is batch size shifts the L distribution, and mean L is not a hard threshold."
+  },
+  "microbench": {
+    who: "Xiangyu",
+    timing: "≈ 50 s",
+    speech: "The final result section isolates the mechanism. We benchmark the MV and MM kernels directly, with no scheduler involved, on a synthetic list of 4,000 vectors. We sweep L from 1 to 256 with 50 repetitions per point.\n\nMV is basically flat at 5.1 to 5.5 nanoseconds per query per vector, because each query is processed independently. MM starts worse at small L because of GEMM setup, then improves sharply as loaded vectors are reused across more queries. In this kernel-only benchmark, it crosses MV around L equal to 8, and by L equal to 256 it is 3.77 times faster.\n\nSo L explains the direction of the results, but L equal to 8 is not a universal cutoff for full scheduler runs. Those runs average over many lists with different L values.",
+    review: "If asked 'why not L=8 exactly in main experiment?' — main experiment averages over a distribution of L; microbench fixes L exactly. They agree on direction, not point-for-point."
   },
   "takeaway": {
     who: "Yujia",
     timing: "≈ 45 s",
-    speech: "To summarize. Reordering query execution alone, with the index untouched and recall preserved exactly, gives a measurable throughput improvement. The right kernel — MV or MM — is governed by L, the per-list sharing count. On our hardware the crossover is at L equal to 8. Whether you land above or below it is determined by workload structure and batch size together.\n\nFor practitioners, the rule of thumb is: estimate likely L from your target QPS, latency budget, and query locality, and pick MV below 8, MM above.\n\nThe natural extension is an adaptive scan that picks the kernel per batch from observed L. The open question is multi-threading — cores already amortize memory traffic, and whether scheduling still matters once you parallelize across queries is something we have not measured.\n\nThanks. Happy to take questions.",
+    speech: "To summarize. Reordering query execution alone, with the index untouched and recall preserved exactly, gives a measurable throughput improvement. The right kernel — MV or MM — is governed by L, the per-list sharing count. On our hardware, the isolated kernel crossover is around L equal to 8, but that is a guide, not an absolute boundary, because full runs see a distribution of L values.\n\nFor practitioners, the rule of thumb is to estimate the L distribution from target QPS, batch size, and query locality. Low list sharing favors MV; high list sharing favors MM.\n\nThe natural extension is an adaptive scan that picks the kernel per batch from observed L. The open question is multi-threading — cores already amortize memory traffic, and whether scheduling still matters once you parallelize across queries is something we have not measured.\n\nThanks. Happy to take questions.",
     review: "Strong honest closing: don't oversell. Explicitly call out single-thread limitation."
   }
 };
