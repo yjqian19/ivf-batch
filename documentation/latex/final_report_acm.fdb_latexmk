@@ -1,13 +1,13 @@
 # Fdb version 4
-["bibtex final_report_acm"] 1778169727.17229 "final_report_acm.aux" "final_report_acm.bbl" "final_report_acm" 1778171631.48245 0
+["bibtex final_report_acm"] 1778169727.17229 "final_report_acm.aux" "final_report_acm.bbl" "final_report_acm" 1778173543.00261 0
   "./references.bib" 1778167980.83173 2877 3d08c3f89cc14bc9a2d8d62a29a655cc ""
   "/usr/local/texlive/2026/texmf-dist/bibtex/bst/acmart/ACM-Reference-Format.bst" 1748720794 93560 12e0ced1522ea2bfa9b2fb12855c7e9e ""
-  "final_report_acm.aux" 1778171631.11779 7061 2f1f3df50e95838bdd7f577b8b74d767 "pdflatex"
+  "final_report_acm.aux" 1778173542.62526 7061 2f1f3df50e95838bdd7f577b8b74d767 "pdflatex"
   (generated)
   "final_report_acm.bbl"
   "final_report_acm.blg"
   (rewritten before read)
-["pdflatex"] 1778171630.06673 "final_report_acm.tex" "final_report_acm.pdf" "final_report_acm" 1778171631.48262 0
+["pdflatex"] 1778173541.48996 "final_report_acm.tex" "final_report_acm.pdf" "final_report_acm" 1778173543.00276 0
   "../../figures/fig_latency.png" 1778126726.79966 91007 6314b50a7e8860f9bdf627cc77e2f94d ""
   "../../figures/fig_latency_clustered.png" 1778126726.88864 92045 c2383ed7fc1bec68764fdde314be62d0 ""
   "../../figures/fig_microbench.png" 1778126726.55211 66310 5e40995bf1603c52bb5c52754ee013bb ""
@@ -203,10 +203,10 @@
   "/usr/local/texlive/2026/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1778125619 5573038 b99aad5e4898a9034e953632f940512b ""
   "/usr/local/texlive/2026/texmf-var/web2c/pdftex/pdflatex.fmt" 1774209607 3636776 dc5fa9b6b1453b9d196cd42edf876004 ""
   "/usr/local/texlive/2026/texmf.cnf" 1774209515 577 648cd9f92f9c0eac486f4c71c85cfbbe ""
-  "final_report_acm.aux" 1778171631.11779 7061 2f1f3df50e95838bdd7f577b8b74d767 "pdflatex"
+  "final_report_acm.aux" 1778173542.62526 7061 2f1f3df50e95838bdd7f577b8b74d767 "pdflatex"
   "final_report_acm.bbl" 1778169727.26881 5893 885c73d97d2273fa0ea9872ef56cad1b "bibtex final_report_acm"
-  "final_report_acm.out" 1778171631.11864 1423 f9cf107a32af666f5bcf7ec447c16abc "pdflatex"
-  "final_report_acm.tex" 1778171623.56517 23759 95dc5e60aea75f34bc59fbfa031756cf ""
+  "final_report_acm.out" 1778173542.62608 1423 f9cf107a32af666f5bcf7ec447c16abc "pdflatex"
+  "final_report_acm.tex" 1778173536.54627 23768 6974101fd174f4ccb0b857b93fc80615 ""
   (generated)
   "final_report_acm.aux"
   "final_report_acm.log"
